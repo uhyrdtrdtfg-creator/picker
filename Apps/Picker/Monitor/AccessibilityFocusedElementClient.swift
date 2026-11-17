@@ -28,6 +28,9 @@ protocol FocusedTextEditing {
 struct AccessibilityFocusedElementClient: FocusedSelectionReading, FocusedTextEditing {
     private static let axBoundsAttribute = "AXBounds"
     private static let axFrameAttribute = "AXFrame"
+    private static let axSelectedTextMarkerRangeAttribute = "AXSelectedTextMarkerRange"
+    private static let axStringForTextMarkerRangeAttribute = "AXStringForTextMarkerRange"
+    private static let axBoundsForTextMarkerRangeAttribute = "AXBoundsForTextMarkerRange"
 
     func readFocusedSelection() -> FocusedSelectionPollOutcome {
         let frontmostApp = NSWorkspace.shared.frontmostApplication
@@ -191,24 +194,39 @@ struct AccessibilityFocusedElementClient: FocusedSelectionReading, FocusedTextEd
     private func readSelectedText(from element: AXUIElement) -> String? {
         var textRef: CFTypeRef?
         if AXUIElementCopyAttributeValue(element, kAXSelectedTextAttribute as CFString, &textRef) == .success {
-            if let text = textRef as? String { return text }
-            if let attributed = textRef as? NSAttributedString { return attributed.string }
+            if let text = textRef as? String, !text.isEmpty { return text }
+            if let attributed = textRef as? NSAttributedString, !attributed.string.isEmpty {
+                return attributed.string
+            }
         }
 
-        guard let rangeValue = copySelectedRangeAXValue(from: element) else { return nil }
-        var range = CFRange(location: 0, length: 0)
-        guard AXValueGetValue(rangeValue, .cfRange, &range), range.length > 0 else { return nil }
-
-        var parameterizedTextRef: CFTypeRef?
-        guard AXUIElementCopyParameterizedAttributeValue(
-            element,
-            kAXStringForRangeParameterizedAttribute as CFString,
-            rangeValue,
-            &parameterizedTextRef
-        ) == .success else {
-            return nil
+        if let rangeValue = copySelectedRangeAXValue(from: element) {
+            var range = CFRange(location: 0, length: 0)
+            if AXValueGetValue(rangeValue, .cfRange, &range), range.length > 0 {
+                var parameterizedTextRef: CFTypeRef?
+                if AXUIElementCopyParameterizedAttributeValue(
+                    element,
+                    kAXStringForRangeParameterizedAttribute as CFString,
+                    rangeValue,
+                    &parameterizedTextRef
+                ) == .success, let text = parameterizedTextRef as? String, !text.isEmpty {
+                    return text
+                }
+            }
         }
-        return parameterizedTextRef as? String
+
+        if let markerRange = copySelectedTextMarkerRange(from: element) {
+            var markerTextRef: CFTypeRef?
+            if AXUIElementCopyParameterizedAttributeValue(
+                element,
+                Self.axStringForTextMarkerRangeAttribute as CFString,
+                markerRange,
+                &markerTextRef
+            ) == .success, let text = markerTextRef as? String {
+                return text
+            }
+        }
+        return nil
     }
 
     private func readSelectionBounds(from element: AXUIElement) -> CGRect {
@@ -220,6 +238,18 @@ struct AccessibilityFocusedElementClient: FocusedSelectionReading, FocusedTextEd
                 rangeValue,
                 &boundsRef
             ) == .success, let quartzRect = extractNonEmptyRect(from: boundsRef) {
+                return convertQuartzToAppKitScreen(quartzRect)
+            }
+        }
+
+        if let markerRange = copySelectedTextMarkerRange(from: element) {
+            var markerBoundsRef: CFTypeRef?
+            if AXUIElementCopyParameterizedAttributeValue(
+                element,
+                Self.axBoundsForTextMarkerRangeAttribute as CFString,
+                markerRange,
+                &markerBoundsRef
+            ) == .success, let quartzRect = extractNonEmptyRect(from: markerBoundsRef) {
                 return convertQuartzToAppKitScreen(quartzRect)
             }
         }
@@ -236,6 +266,18 @@ struct AccessibilityFocusedElementClient: FocusedSelectionReading, FocusedTextEd
             return convertQuartzToAppKitScreen(elementRect)
         }
         return CGRect(origin: NSEvent.mouseLocation, size: .zero)
+    }
+
+    private func copySelectedTextMarkerRange(from element: AXUIElement) -> CFTypeRef? {
+        var markerRangeRef: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(
+            element,
+            Self.axSelectedTextMarkerRangeAttribute as CFString,
+            &markerRangeRef
+        ) == .success else {
+            return nil
+        }
+        return markerRangeRef
     }
 
     private func copySelectedRangeAXValue(from element: AXUIElement) -> AXValue? {

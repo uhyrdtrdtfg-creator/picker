@@ -247,6 +247,7 @@ final class SelectionMonitor {
     private func startPollingIfNeeded() {
         guard pollTimer == nil else { return }
         let timer = Timer(timeInterval: Self.pollInterval, repeats: true) { [weak self] _ in
+            guard (NSEvent.pressedMouseButtons & 1) == 0 else { return }
             self?.pollOnce()
         }
         RunLoop.main.add(timer, forMode: .common)

@@ -78,10 +78,22 @@ struct SystemActionWorkspace: ActionWorkspacePerforming {
 }
 
 protocol SpellGuessProviding {
+    func isWordMisspelled(_ word: String) -> Bool
     func guesses(forWord word: String) -> [String]
 }
 
+extension SpellGuessProviding {
+    func isWordMisspelled(_ word: String) -> Bool {
+        !guesses(forWord: word).isEmpty
+    }
+}
+
 struct SystemSpellGuessProvider: SpellGuessProviding {
+    func isWordMisspelled(_ word: String) -> Bool {
+        let range = NSSpellChecker.shared.checkSpelling(of: word, startingAt: 0)
+        return range.location != NSNotFound && range.length > 0
+    }
+
     func guesses(forWord word: String) -> [String] {
         let checker = NSSpellChecker.shared
         let range = NSRange(location: 0, length: (word as NSString).length)
@@ -194,7 +206,7 @@ final class PickerActionRunner {
         case .paste: return paste(modifiers: modifiers)
         case .search: return search(selection)
         case .openLink: return openLink(selection, modifiers: modifiers)
-        case .dictionary: return dictionary(selection)
+        case .dictionary: return dictionary(selection, modifiers: modifiers)
         case .revealFile: return revealFile(selection)
         case .spelling: return spelling(selection, anchorPoint: anchorPoint)
         }
@@ -274,9 +286,16 @@ final class PickerActionRunner {
         return .success
     }
 
-    func dictionary(_ selection: String) -> PickerActionResult {
+    func dictionary(_ selection: String, modifiers: NSEvent.ModifierFlags = []) -> PickerActionResult {
         let term = Self.dictionaryTerm(from: selection)
         guard !term.isEmpty else { return .failure(.emptySelection) }
+
+        if modifiers.contains(.shift), let definition = Self.lookupSystemDefinition(for: term), !definition.isEmpty {
+            pasteboard.clearContents()
+            return pasteboard.setString(definition, forType: .string)
+                ? .success
+                : .failure(.pasteboardWriteFailed)
+        }
 
         if let encodedTerm = Self.percentEncodePathSegment(term),
            let dictURL = URL(string: "dict:///\(encodedTerm)"),
@@ -292,6 +311,18 @@ final class PickerActionRunner {
 
         dictionaryAlertPresenter(term, Self.lookupSystemDefinition(for: term))
         return .success
+    }
+
+    static func hasSystemDefinition(for selection: String) -> Bool {
+        let term = dictionaryTerm(from: selection)
+        guard !term.isEmpty, term.count <= 400 else { return false }
+        return lookupSystemDefinition(for: term)?.isEmpty == false
+    }
+
+    func isWordMisspelled(_ selection: String) -> Bool {
+        let word = selection.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !word.isEmpty else { return false }
+        return spellChecker.isWordMisspelled(word)
     }
 
     func revealFile(_ selection: String) -> PickerActionResult {

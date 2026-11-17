@@ -28,6 +28,7 @@ extension SelectionMonitor {
             actionRunner.captureSelectionTarget()
             currentSelectionText = text
             currentSelectionBounds = bounds
+            popupController.preferAbove = PickerMonitorBootstrap.preferredPopupAbove()
             let actions = PickerMonitorBootstrap.popupActions(for: text, using: actionRunner)
             popupController.show(actions: actions, near: bounds)
         }
@@ -120,8 +121,7 @@ final class PickerMonitorBootstrap {
             )
         }
 
-        let strippedTerm = trimmed.trimmingCharacters(in: .punctuationCharacters.union(.whitespacesAndNewlines))
-        if !strippedTerm.isEmpty && strippedTerm.count <= 400 {
+        if PickerActionRunner.hasSystemDefinition(for: trimmed) {
             actions.append(.dictionary)
         }
 
@@ -129,16 +129,41 @@ final class PickerMonitorBootstrap {
             actions.append(.reveal)
         }
 
-        if isCandidateSpellingWord(trimmed), !runner.spellingGuesses(for: trimmed).isEmpty {
+        if isCandidateSpellingWord(trimmed),
+           runner.isWordMisspelled(trimmed),
+           !runner.spellingGuesses(for: trimmed).isEmpty {
             actions.append(.spelling)
         }
 
         return actions
     }
 
+    static func preferredPopupAbove(from defaults: UserDefaults = .standard) -> Bool {
+        if let explicit = defaults.object(forKey: "picker.preferAbove") as? Bool {
+            return explicit
+        }
+        if let position = defaults.string(forKey: "popupPosition")?.lowercased() {
+            return position != "below"
+        }
+        return true
+    }
+
+    private static let allowedSpellingWords: Set<String> = ["pilotmoon", "popclip", "picker"]
+
     private static func isCandidateSpellingWord(_ trimmed: String) -> Bool {
         guard (3...400).contains(trimmed.count) else { return false }
-        return !trimmed.contains(where: { $0.isWhitespace || $0 == "/" || $0 == ":" })
+        guard !allowedSpellingWords.contains(trimmed.lowercased()) else { return false }
+        if trimmed.contains(where: { $0.isWhitespace || $0 == "/" || $0 == ":" || $0 == "_" }) {
+            return false
+        }
+        var previousWasLowercase = false
+        for character in trimmed {
+            if previousWasLowercase && character.isUppercase {
+                return false
+            }
+            previousWasLowercase = character.isLowercase
+        }
+        return true
     }
 
     private static func presentAccessibilityPermissionPrompt() {

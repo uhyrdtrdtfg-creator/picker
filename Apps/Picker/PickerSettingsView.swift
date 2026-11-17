@@ -1,15 +1,22 @@
+import AppKit
 import Foundation
 import ServiceManagement
 import SwiftUI
 
 enum PickerDefaultsKey {
     static let appearAutomatically = "appearAutomatically"
+    static let namespacedAppearAutomatically = "picker.appearAutomatically"
     static let startAtLogin = "startAtLogin"
     static let excludedBundleIdentifiers = "excludedBundleIdentifiers"
+    static let namespacedExcludedBundleIDs = "picker.excludedBundleIDs"
 
     static func excludedAppBundleIDs(from defaults: UserDefaults = .standard) -> [String] {
         let rawText = defaults.string(forKey: excludedBundleIdentifiers) ?? ""
-        return rawText
+        return parseBundleIdentifiers(from: rawText)
+    }
+
+    static func parseBundleIdentifiers(from rawText: String) -> [String] {
+        rawText
             .components(separatedBy: .newlines)
             .map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty }
@@ -25,8 +32,13 @@ struct PickerSettingsView: View {
 
     var body: some View {
         Form {
-            Section("General") {
-                Toggle("Appear automatically", isOn: $appearAutomatically)
+            Section("Activation") {
+                VStack(alignment: .leading, spacing: 4) {
+                    Toggle("Appear automatically", isOn: appearAutomaticallyBinding)
+                    Text("Picker appears automatically when you select text with the pointer or when you click and hold.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
 
                 VStack(alignment: .leading, spacing: 4) {
                     Toggle("Start at login", isOn: startAtLoginBinding)
@@ -43,13 +55,13 @@ struct PickerSettingsView: View {
                 AccessibilityPermissionView()
             }
 
-            Section("Exclude Apps") {
+            Section("Exclude these apps") {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("Bundle identifiers, one per line:")
+                    Text("Restrict where Picker can appear automatically. Enter one bundle identifier per line:")
                         .font(.caption)
                         .foregroundColor(.secondary)
 
-                    TextEditor(text: $excludedBundleIdentifiersText)
+                    TextEditor(text: excludedAppsBinding)
                         .font(.system(.body, design: .monospaced))
                         .frame(minHeight: 110)
                         .overlay(
@@ -60,10 +72,34 @@ struct PickerSettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .frame(minWidth: 460, idealWidth: 500, minHeight: 420)
+        .frame(minWidth: 460, idealWidth: 500, minHeight: 440)
         .onAppear {
-            syncLoginItemStateOnAppear()
+            syncLoginItemState()
         }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            syncLoginItemState()
+        }
+    }
+
+    private var appearAutomaticallyBinding: Binding<Bool> {
+        Binding(
+            get: { appearAutomatically },
+            set: { newValue in
+                appearAutomatically = newValue
+                UserDefaults.standard.set(newValue, forKey: PickerDefaultsKey.namespacedAppearAutomatically)
+            }
+        )
+    }
+
+    private var excludedAppsBinding: Binding<String> {
+        Binding(
+            get: { excludedBundleIdentifiersText },
+            set: { newValue in
+                excludedBundleIdentifiersText = newValue
+                let parsed = PickerDefaultsKey.parseBundleIdentifiers(from: newValue)
+                UserDefaults.standard.set(parsed, forKey: PickerDefaultsKey.namespacedExcludedBundleIDs)
+            }
+        )
     }
 
     private var startAtLoginBinding: Binding<Bool> {
@@ -84,7 +120,7 @@ struct PickerSettingsView: View {
         return SMAppService.mainApp.status != .notFound
     }
 
-    private func syncLoginItemStateOnAppear() {
+    private func syncLoginItemState() {
         guard canUseAppService else {
             isOpenAtLoginUnavailable = true
             return
@@ -104,13 +140,14 @@ struct PickerSettingsView: View {
         }
 
         do {
+            let currentStatus = SMAppService.mainApp.status
             if enabled {
-                try SMAppService.mainApp.register()
-            } else {
-                let status = SMAppService.mainApp.status
-                if status == .enabled || status == .requiresApproval {
-                    try SMAppService.mainApp.unregister()
+                if currentStatus == .enabled {
+                    try? SMAppService.mainApp.unregister()
                 }
+                try SMAppService.mainApp.register()
+            } else if currentStatus == .enabled || currentStatus == .requiresApproval {
+                try SMAppService.mainApp.unregister()
             }
             isOpenAtLoginUnavailable = (SMAppService.mainApp.status == .notFound)
         } catch {

@@ -18,9 +18,13 @@
 	<string>1.0</string>
 	<key>CFBundleVersion</key>
 	<string>1</string>
+	<key>LSApplicationCategoryType</key>
+	<string>public.app-category.utilities</string>
 	<key>LSUIElement</key>
 	<true/>
 	<key>NSAccessibilityUsageDescription</key>
 	<string>Picker needs Accessibility access to read the text you select and to perform actions.</string>
+	<key>NSAppleEventsUsageDescription</key>
+	<string>Picker uses automation to read the active browser tab URL when checking excluded websites.</string>
 </dict>
 </plist>

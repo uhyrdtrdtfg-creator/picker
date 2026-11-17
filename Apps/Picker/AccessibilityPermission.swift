@@ -3,6 +3,8 @@ import ApplicationServices
 import SwiftUI
 
 enum AccessibilityPermission {
+    static let accessibilityChangedNotification = Notification.Name("com.apple.accessibility.api")
+
     static var isTrusted: Bool {
         AXIsProcessTrusted()
     }
@@ -37,6 +39,20 @@ enum AccessibilityPermission {
         return "Privacy & Security > Accessibility"
     }
 
+    static var requiredHeadline: String {
+        if usesDeviceControlPane {
+            return "Device Control and Data Access is required"
+        }
+        return "Accessibility access is required"
+    }
+
+    static var requestButtonTitle: String {
+        if usesDeviceControlPane {
+            return "Request Device Control and Data Access"
+        }
+        return "Request Accessibility Access"
+    }
+
     static var openSettingsButtonTitle: String {
         if usesDeviceControlPane {
             return "Open Device Control and Data Access"
@@ -46,9 +62,9 @@ enum AccessibilityPermission {
 
     static var explanationText: String {
         if usesDeviceControlPane {
-            return "Picker needs Device Control and Data Access in \(settingsPathDescription) to read the text you select and to perform actions."
+            return "Picker needs Device Control and Data Access to read the text you select in other apps and to perform actions for you. Enable Picker in \(settingsPathDescription)."
         }
-        return "Picker needs Accessibility access in \(settingsPathDescription) to read the text you select and to perform actions."
+        return "Picker needs Accessibility access to read the text you select in other apps and to perform actions for you. Enable Picker in \(settingsPathDescription)."
     }
 
     static var systemSettingsURL: URL {
@@ -67,10 +83,15 @@ enum AccessibilityPermission {
 }
 
 struct OpenAccessibilitySettingsButton: View {
+    var isTrusted: Bool = AccessibilityPermission.isTrusted
     var action: () -> Void = AccessibilityPermission.openSystemSettings
 
     var body: some View {
-        Button(AccessibilityPermission.openSettingsButtonTitle) {
+        Button(
+            isTrusted
+                ? AccessibilityPermission.openSettingsButtonTitle
+                : AccessibilityPermission.requestButtonTitle
+        ) {
             action()
         }
     }
@@ -84,7 +105,7 @@ struct AccessibilityPermissionView: View {
             HStack(spacing: 8) {
                 Image(systemName: isTrusted ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
                     .foregroundColor(isTrusted ? .green : .orange)
-                Text(AccessibilityPermission.settingsPaneTitle)
+                Text(isTrusted ? AccessibilityPermission.settingsPaneTitle : AccessibilityPermission.requiredHeadline)
                 Spacer()
                 Text(isTrusted ? "Authorized" : "Not Authorized")
                     .foregroundColor(.secondary)
@@ -97,17 +118,31 @@ struct AccessibilityPermissionView: View {
             }
 
             HStack {
-                OpenAccessibilitySettingsButton()
+                OpenAccessibilitySettingsButton(isTrusted: isTrusted)
                 Button("Refresh") {
-                    isTrusted = AccessibilityPermission.isTrusted
+                    refreshTrustState()
                 }
             }
         }
         .onAppear {
-            isTrusted = AccessibilityPermission.isTrusted
+            refreshTrustState()
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-            isTrusted = AccessibilityPermission.isTrusted
+            refreshTrustState()
         }
+        .onReceive(
+            DistributedNotificationCenter.default().publisher(
+                for: AccessibilityPermission.accessibilityChangedNotification
+            )
+        ) { _ in
+            refreshTrustState()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                refreshTrustState()
+            }
+        }
+    }
+
+    private func refreshTrustState() {
+        isTrusted = AccessibilityPermission.isTrusted
     }
 }

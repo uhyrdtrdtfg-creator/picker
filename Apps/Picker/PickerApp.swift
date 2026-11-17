@@ -17,7 +17,10 @@ struct PickerApp: App {
         Window("Picker Settings", id: Self.settingsWindowID) {
             PickerSettingsView()
         }
-        .defaultSize(width: 500, height: 460)
+        .defaultSize(width: 500, height: 480)
+        .commands {
+            TextEditingCommands()
+        }
     }
 }
 

@@ -13,8 +13,10 @@ targets:
     info:
       path: Apps/Picker/Info.plist
       properties:
+        LSApplicationCategoryType: public.app-category.utilities
         LSUIElement: true
         NSAccessibilityUsageDescription: Picker needs Accessibility access to read the text you select and to perform actions.
+        NSAppleEventsUsageDescription: Picker uses automation to read the active browser tab URL when checking excluded websites.
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: app.picker.mac

@@ -211,6 +211,23 @@ final class PickerActionsTests: XCTestCase {
             .revealPath("/Users/alice/My Documents/report.pdf")
         )
 
+        let escapedSpacePath = PickerSelectionSnapshot(text: #"/Users/alice/My\ Documents/report.pdf"#)
+        XCTAssertTrue(visibleActions(for: escapedSpacePath).map(\.id).contains(.revealFile))
+        XCTAssertEqual(
+            plan(id: .revealFile, snapshot: escapedSpacePath),
+            .revealPath("/Users/alice/My Documents/report.pdf")
+        )
+
+        let fileURLSnapshot = PickerSelectionSnapshot(
+            text: "file:///Users/alice/My%20Documents/report.pdf"
+        )
+        XCTAssertTrue(visibleActions(for: fileURLSnapshot).map(\.id).contains(.revealFile))
+        XCTAssertFalse(visibleActions(for: fileURLSnapshot).map(\.id).contains(.openLink))
+        XCTAssertEqual(
+            plan(id: .revealFile, snapshot: fileURLSnapshot),
+            .revealPath("/Users/alice/My Documents/report.pdf")
+        )
+
         let twoLines = PickerSelectionSnapshot(text: "/tmp/first.txt\n/tmp/second.txt")
         XCTAssertFalse(visibleActions(for: twoLines).map(\.id).contains(.revealFile))
         XCTAssertEqual(plan(id: .revealFile, snapshot: twoLines), .revealPath(""))

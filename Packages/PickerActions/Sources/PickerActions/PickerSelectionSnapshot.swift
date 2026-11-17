@@ -94,10 +94,11 @@ public struct PickerSelectionSnapshot: PickerSelectionSnapshotProviding, Equatab
     public static func detectAbsolutePaths(in text: String) -> [String] {
         guard !text.isEmpty, !text.contains("\0") else { return [] }
         guard
-            let splitRegex = try? NSRegularExpression(pattern: #"\s+(?=/[^\s/])"#),
+            let splitRegex = try? NSRegularExpression(pattern: #"(?<!\\)\s+(?=/[^\s/])"#),
             let inlineRegex = try? NSRegularExpression(
-                pattern: #""(/[^"\r\n]+)"|'(/[^'\r\n]+)'|`(/[^`\r\n]+)`|(?:^|(?<=[\s(\[{]))(/[A-Za-z0-9._\-][^\s"'`<>]*)"#
+                pattern: #""(/[^"\r\n]+)"|'(/[^'\r\n]+)'|`(/[^`\r\n]+)`|(?:^|(?<=[\s(\[{]))(/[A-Za-z0-9._\-](?:\\ |[^\s"'`<>])*)"#
             ),
+            let fileURLRegex = try? NSRegularExpression(pattern: #"(?i)\bfile:///[^\s<>"`]+"#),
             let schemeRegex = try? NSRegularExpression(pattern: #"(?i)[a-z][a-z0-9+.\-]*://[^\s<>"`]+"#)
         else {
             return []
@@ -119,6 +120,14 @@ public struct PickerSelectionSnapshot: PickerSelectionSnapshotProviding, Equatab
             }
 
             let lineRange = NSRange(line.startIndex..<line.endIndex, in: line)
+            for fileMatch in fileURLRegex.matches(in: line, range: lineRange) {
+                guard let urlRange = Range(fileMatch.range, in: line) else { continue }
+                let cleanedURL = stripTrailingURLPunctuation(String(line[urlRange]))
+                if let url = URL(string: cleanedURL), url.isFileURL, isValidAbsolutePath(url.path) {
+                    detected.append(url.path)
+                }
+            }
+
             let urlRanges = schemeRegex.matches(in: line, range: lineRange).map(\.range)
 
             for match in inlineRegex.matches(in: line, range: lineRange) {
@@ -129,7 +138,9 @@ public struct PickerSelectionSnapshot: PickerSelectionSnapshotProviding, Equatab
                     guard let captureRange = Range(match.range(at: group), in: line) else { continue }
                     var candidate = String(line[captureRange])
                     if group == 4 {
-                        candidate = stripTrailingPathPunctuation(candidate)
+                        candidate = stripTrailingPathPunctuation(
+                            candidate.replacingOccurrences(of: #"\ "#, with: " ")
+                        )
                     }
                     if isValidAbsolutePath(candidate) {
                         detected.append(candidate)
@@ -146,20 +157,25 @@ public struct PickerSelectionSnapshot: PickerSelectionSnapshotProviding, Equatab
         let range = NSRange(line.startIndex..<line.endIndex, in: line)
         let splits = splitRegex.matches(in: line, range: range)
         guard !splits.isEmpty else {
-            return isValidAbsolutePath(line) ? [line] : []
+            let unescaped = line.replacingOccurrences(of: #"\ "#, with: " ")
+            return isValidAbsolutePath(unescaped) ? [unescaped] : []
         }
 
         var segments: [String] = []
         var segmentStart = line.startIndex
         for split in splits {
             guard let splitRange = Range(split.range, in: line) else { continue }
-            let segment = String(line[segmentStart..<splitRange.lowerBound]).trimmingCharacters(in: .whitespaces)
+            let segment = String(line[segmentStart..<splitRange.lowerBound])
+                .trimmingCharacters(in: .whitespaces)
+                .replacingOccurrences(of: #"\ "#, with: " ")
             if isValidAbsolutePath(segment) {
                 segments.append(segment)
             }
             segmentStart = splitRange.upperBound
         }
-        let remainder = String(line[segmentStart...]).trimmingCharacters(in: .whitespaces)
+        let remainder = String(line[segmentStart...])
+            .trimmingCharacters(in: .whitespaces)
+            .replacingOccurrences(of: #"\ "#, with: " ")
         if isValidAbsolutePath(remainder) {
             segments.append(remainder)
         }

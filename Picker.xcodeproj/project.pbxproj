@@ -8,16 +8,28 @@
 
 /* Begin PBXBuildFile section */
 		070DBBD1922FCA686BA86980 /* PickerApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = ECED2B0C9FFF371F2D2830E8 /* PickerApp.swift */; };
+		A5B0B0C930F2C28D9048C70A /* PickerActionRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE9CFEFD284AE4D31C241F93 /* PickerActionRunner.swift */; };
+		AA3C651E565B79715E2F55D8 /* PickerPopupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9D8FB85AAF2DE058E45C5D3 /* PickerPopupView.swift */; };
 		AC1CEAA1A5374133F1B528AA /* PickerSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D6B5F1A0958297455D0C8399 /* PickerSettingsView.swift */; };
+		AD45B49A615E899397E956DD /* SelectionMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2AA7C59EF3AA07BEE0FC0F81 /* SelectionMonitor.swift */; };
+		BB7709435CC8F6E5BF748805 /* PickerPopupPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2157B972B83B180BC3C4486 /* PickerPopupPanel.swift */; };
+		CDFC46CF1977978633EB0D3C /* PickerPopupController.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9F7E13A1C00DB6BAC330321 /* PickerPopupController.swift */; };
+		D077430AC9B26B32BC92BAD0 /* PopupModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7431E375F64B5B3182481181 /* PopupModels.swift */; };
 		EE158140C983A04845DFCAF9 /* AccessibilityPermission.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1D39451CDC53A6A5DFC63CD /* AccessibilityPermission.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		2A2405BBE80E0DD46C608462 /* Picker.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Picker.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		2AA7C59EF3AA07BEE0FC0F81 /* SelectionMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SelectionMonitor.swift; sourceTree = "<group>"; };
+		7431E375F64B5B3182481181 /* PopupModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PopupModels.swift; sourceTree = "<group>"; };
 		A1D39451CDC53A6A5DFC63CD /* AccessibilityPermission.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccessibilityPermission.swift; sourceTree = "<group>"; };
 		A7BC51E840B8DDF8850E4FD1 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		B9D8FB85AAF2DE058E45C5D3 /* PickerPopupView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PickerPopupView.swift; sourceTree = "<group>"; };
+		D2157B972B83B180BC3C4486 /* PickerPopupPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PickerPopupPanel.swift; sourceTree = "<group>"; };
 		D6B5F1A0958297455D0C8399 /* PickerSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PickerSettingsView.swift; sourceTree = "<group>"; };
 		ECED2B0C9FFF371F2D2830E8 /* PickerApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PickerApp.swift; sourceTree = "<group>"; };
+		EE9CFEFD284AE4D31C241F93 /* PickerActionRunner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PickerActionRunner.swift; sourceTree = "<group>"; };
+		F9F7E13A1C00DB6BAC330321 /* PickerPopupController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PickerPopupController.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -36,6 +48,8 @@
 				A7BC51E840B8DDF8850E4FD1 /* Info.plist */,
 				ECED2B0C9FFF371F2D2830E8 /* PickerApp.swift */,
 				D6B5F1A0958297455D0C8399 /* PickerSettingsView.swift */,
+				FE7334C4D924C2BB0D08A85F /* Monitor */,
+				F56ED061E72AAD6FE682FC70 /* Popup */,
 			);
 			name = Picker;
 			path = Apps/Picker;
@@ -47,6 +61,26 @@
 				B7C19404697C4BC1C999CD4B /* Picker */,
 				573771B5854CB1CB1AAFB57E /* Products */,
 			);
+			sourceTree = "<group>";
+		};
+		F56ED061E72AAD6FE682FC70 /* Popup */ = {
+			isa = PBXGroup;
+			children = (
+				F9F7E13A1C00DB6BAC330321 /* PickerPopupController.swift */,
+				D2157B972B83B180BC3C4486 /* PickerPopupPanel.swift */,
+				B9D8FB85AAF2DE058E45C5D3 /* PickerPopupView.swift */,
+				7431E375F64B5B3182481181 /* PopupModels.swift */,
+			);
+			path = Popup;
+			sourceTree = "<group>";
+		};
+		FE7334C4D924C2BB0D08A85F /* Monitor */ = {
+			isa = PBXGroup;
+			children = (
+				EE9CFEFD284AE4D31C241F93 /* PickerActionRunner.swift */,
+				2AA7C59EF3AA07BEE0FC0F81 /* SelectionMonitor.swift */,
+			);
+			path = Monitor;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -105,8 +139,14 @@
 			buildActionMask = 2147483647;
 			files = (
 				EE158140C983A04845DFCAF9 /* AccessibilityPermission.swift in Sources */,
+				A5B0B0C930F2C28D9048C70A /* PickerActionRunner.swift in Sources */,
 				070DBBD1922FCA686BA86980 /* PickerApp.swift in Sources */,
+				CDFC46CF1977978633EB0D3C /* PickerPopupController.swift in Sources */,
+				BB7709435CC8F6E5BF748805 /* PickerPopupPanel.swift in Sources */,
+				AA3C651E565B79715E2F55D8 /* PickerPopupView.swift in Sources */,
 				AC1CEAA1A5374133F1B528AA /* PickerSettingsView.swift in Sources */,
+				D077430AC9B26B32BC92BAD0 /* PopupModels.swift in Sources */,
+				AD45B49A615E899397E956DD /* SelectionMonitor.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

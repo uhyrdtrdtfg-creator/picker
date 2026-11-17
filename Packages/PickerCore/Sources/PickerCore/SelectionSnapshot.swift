@@ -8,6 +8,7 @@ import Foundation
 public struct SelectionSnapshot: Equatable, Sendable {
     public static let maxDetectedURLs = 8
     public static let maxDetectedFilePaths = 4
+    private static let maxScanCharacters = 65_536
 
     public let text: String
     public let range: NSRange?
@@ -54,21 +55,22 @@ public struct SelectionSnapshot: Equatable, Sendable {
     /// Extracts distinct `http` and `https` URLs from `text`, preserving order and capping at `limit`.
     public static func extractURLs(from text: String, limit: Int = maxDetectedURLs) -> [URL] {
         guard limit > 0, !text.isEmpty else { return [] }
+        let scanned = scanPrefix(of: text)
         guard let regex = try? NSRegularExpression(
             pattern: #"(?i)\bhttps?://(?:\[[0-9a-f:.]+\]|[^\s<>"`\[\]/]+)(?:[^\s<>"`\[\]]*)"#
         ) else {
             return []
         }
 
-        let nsRange = NSRange(text.startIndex..<text.endIndex, in: text)
-        let matches = regex.matches(in: text, range: nsRange)
+        let nsRange = NSRange(scanned.startIndex..<scanned.endIndex, in: scanned)
+        let matches = regex.matches(in: scanned, range: nsRange)
 
         var results: [URL] = []
         var seen: Set<String> = []
 
         for match in matches {
-            guard let swiftRange = Range(match.range, in: text) else { continue }
-            let cleaned = trimTrailingURLPunctuation(String(text[swiftRange]))
+            guard let swiftRange = Range(match.range, in: scanned) else { continue }
+            let cleaned = trimTrailingURLPunctuation(String(scanned[swiftRange]))
             guard
                 let components = URLComponents(string: cleaned),
                 let scheme = components.scheme?.lowercased(),
@@ -96,16 +98,21 @@ public struct SelectionSnapshot: Equatable, Sendable {
     /// preserving order and capping at `limit` without accessing the filesystem.
     public static func extractFilePaths(from text: String, limit: Int = maxDetectedFilePaths) -> [String] {
         guard limit > 0, !text.isEmpty else { return [] }
+        let scanned = scanPrefix(of: text)
 
-        let excludedRanges = urlLikeRanges(in: text)
+        if let standalone = standaloneSpacedFilePath(in: scanned) {
+            return [standalone]
+        }
+
+        let excludedRanges = urlLikeRanges(in: scanned)
         guard let regex = try? NSRegularExpression(
             pattern: #"(?:"(/(?:Users|Applications|tmp)/[^"\r\n]+)"|'(/(?:Users|Applications|tmp)/[^'\r\n]+)'|`(/(?:Users|Applications|tmp)/[^`\r\n]+)`|(?:^|(?<=[\s(\[{<="'`]))(/(?:Users|Applications|tmp)/(?:\\ |[^\s"'`<>\[\]])+))"#
         ) else {
             return []
         }
 
-        let fullNSRange = NSRange(text.startIndex..<text.endIndex, in: text)
-        let matches = regex.matches(in: text, range: fullNSRange)
+        let fullNSRange = NSRange(scanned.startIndex..<scanned.endIndex, in: scanned)
+        let matches = regex.matches(in: scanned, range: fullNSRange)
 
         var results: [String] = []
         var seen: Set<String> = []
@@ -116,14 +123,14 @@ public struct SelectionSnapshot: Equatable, Sendable {
             }
 
             let candidate: String
-            if let quotedDouble = Range(match.range(at: 1), in: text) {
-                candidate = String(text[quotedDouble])
-            } else if let quotedSingle = Range(match.range(at: 2), in: text) {
-                candidate = String(text[quotedSingle])
-            } else if let quotedBacktick = Range(match.range(at: 3), in: text) {
-                candidate = String(text[quotedBacktick])
-            } else if let unquoted = Range(match.range(at: 4), in: text) {
-                let raw = String(text[unquoted]).replacingOccurrences(of: #"\ "#, with: " ")
+            if let quotedDouble = Range(match.range(at: 1), in: scanned) {
+                candidate = String(scanned[quotedDouble])
+            } else if let quotedSingle = Range(match.range(at: 2), in: scanned) {
+                candidate = String(scanned[quotedSingle])
+            } else if let quotedBacktick = Range(match.range(at: 3), in: scanned) {
+                candidate = String(scanned[quotedBacktick])
+            } else if let unquoted = Range(match.range(at: 4), in: scanned) {
+                let raw = String(scanned[unquoted]).replacingOccurrences(of: #"\ "#, with: " ")
                 candidate = trimTrailingPathPunctuation(raw)
             } else {
                 continue
@@ -140,6 +147,46 @@ public struct SelectionSnapshot: Equatable, Sendable {
         }
 
         return results
+    }
+
+    private static func scanPrefix(of text: String) -> String {
+        guard text.count > maxScanCharacters else { return text }
+        let endIndex = text.index(text.startIndex, offsetBy: maxScanCharacters)
+        return String(text[..<endIndex])
+    }
+
+    private static func standaloneSpacedFilePath(in text: String) -> String? {
+        let trimmed = trimTrailingPathPunctuation(
+            text.trimmingCharacters(in: .whitespacesAndNewlines)
+        )
+        guard
+            !trimmed.contains("\n"),
+            !trimmed.contains("\r"),
+            trimmed.contains(" "),
+            !trimmed.contains(#"\ "#),
+            isAllowedAbsolutePath(trimmed)
+        else {
+            return nil
+        }
+
+        let secondRootMarkers = [" /Users/", " /Applications/", " /tmp/"]
+        if secondRootMarkers.contains(where: { trimmed.contains($0) }) {
+            return nil
+        }
+
+        guard let firstSpace = trimmed.firstIndex(of: " ") else { return nil }
+        let afterFirstSpace = trimmed[firstSpace...]
+        if afterFirstSpace.contains("/") {
+            return trimmed
+        }
+
+        let lastComponent = (trimmed as NSString).lastPathComponent
+        let ext = (lastComponent as NSString).pathExtension
+        if !ext.isEmpty && ext.count <= 12 && ext.allSatisfy({ $0.isLetter || $0.isNumber }) {
+            return trimmed
+        }
+
+        return nil
     }
 
     private static func urlLikeRanges(in text: String) -> [NSRange] {

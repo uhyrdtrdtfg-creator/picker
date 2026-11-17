@@ -19,7 +19,7 @@ final class AppFilterTests: XCTestCase {
             appearAutomatically: true,
             excludedBundleIDs: ["com.apple.Terminal", "com.googlecode.iterm2"],
             includedBundleIDs: [],
-            excludedWebsiteHosts: ["google.com", "https://Figma.com/file"]
+            excludedWebsiteHosts: ["google.com", "https://Figma.com/file", "*.notion.so"]
         )
 
         XCTAssertFalse(filter.shouldAppear(bundleID: "com.apple.Terminal", websiteHost: nil))
@@ -29,6 +29,8 @@ final class AppFilterTests: XCTestCase {
         XCTAssertFalse(filter.shouldAppear(bundleID: "com.apple.Safari", websiteHost: "docs.google.com"))
         XCTAssertTrue(filter.shouldAppear(bundleID: "com.apple.Safari", websiteHost: "notgoogle.com"))
         XCTAssertFalse(filter.shouldAppear(bundleID: "com.apple.Safari", websiteHost: "www.figma.com"))
+        XCTAssertFalse(filter.shouldAppear(bundleID: "com.apple.Safari", websiteHost: "www.notion.so"))
+        XCTAssertFalse(filter.shouldAppear(bundleID: "com.apple.Safari", websiteHost: "notion.so"))
     }
 
     func testIncludedBundleIDsRestrictsAppearanceAndExclusionStillWins() {

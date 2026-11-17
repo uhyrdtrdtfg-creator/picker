@@ -94,6 +94,9 @@ public struct AppFilter: Codable, Equatable, Sendable {
             }
         }
 
+        while candidate.hasPrefix("*.") {
+            candidate.removeFirst(2)
+        }
         while candidate.hasPrefix(".") {
             candidate.removeFirst()
         }

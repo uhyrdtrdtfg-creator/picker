@@ -132,4 +132,19 @@ final class SelectionSnapshotTests: XCTestCase {
             ]
         )
     }
+
+    func testExtractsStandaloneUnquotedPathsWithSpacesWithoutMatchingProse() {
+        XCTAssertEqual(
+            SelectionSnapshot.extractFilePaths(from: "/Applications/System Settings.app"),
+            ["/Applications/System Settings.app"]
+        )
+        XCTAssertEqual(
+            SelectionSnapshot.extractFilePaths(from: "/Users/alice/Library/Application Support/Picker"),
+            ["/Users/alice/Library/Application Support/Picker"]
+        )
+        XCTAssertEqual(
+            SelectionSnapshot.extractFilePaths(from: "/tmp/output.log was deleted yesterday"),
+            ["/tmp/output.log"]
+        )
+    }
 }

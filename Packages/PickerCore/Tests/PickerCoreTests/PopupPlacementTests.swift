@@ -101,4 +101,15 @@ final class PopupPlacementTests: XCTestCase {
         let converted = PopupPlacement.convertFromQuartzScreen(quartz, primaryScreenHeight: 900)
         XCTAssertEqual(converted, CGRect(x: 120, y: 780, width: 80, height: 20))
     }
+
+    func testHandlesNullSelectionBoundsInsideVisibleFrame() {
+        let placed = PopupPlacement.place(
+            selectionBounds: .null,
+            screenVisible: screen,
+            preferAbove: true,
+            popupSize: popupSize
+        )
+        XCTAssertTrue(screen.contains(placed))
+        XCTAssertFalse(placed.origin.x.isNaN || placed.origin.y.isNaN)
+    }
 }

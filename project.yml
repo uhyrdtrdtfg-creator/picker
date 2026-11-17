@@ -1,0 +1,34 @@
+name: Picker
+options:
+  bundleIdPrefix: app.picker
+  deploymentTarget:
+    macOS: "13.0"
+targets:
+  Picker:
+    type: application
+    platform: macOS
+    deploymentTarget: "13.0"
+    sources:
+      - Apps/Picker
+    info:
+      path: Apps/Picker/Info.plist
+      properties:
+        LSUIElement: true
+        NSAccessibilityUsageDescription: Picker needs Accessibility access to read the text you select and to perform actions.
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: app.picker.mac
+        PRODUCT_NAME: Picker
+        MARKETING_VERSION: "1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        SWIFT_VERSION: "5.0"
+        CODE_SIGN_IDENTITY: "-"
+        ENABLE_APP_SANDBOX: NO
+        ENABLE_HARDENED_RUNTIME: NO
+schemes:
+  Picker:
+    build:
+      targets:
+        Picker: all
+    run:
+      config: Debug

@@ -9,6 +9,10 @@ extension Notification.Name {
 struct PickerApp: App {
     private static let settingsWindowID = "picker-settings"
 
+    init() {
+        PickerMonitorBootstrap.shared.start()
+    }
+
     var body: some Scene {
         MenuBarExtra("Picker") {
             PickerMenuContent(settingsWindowID: Self.settingsWindowID)

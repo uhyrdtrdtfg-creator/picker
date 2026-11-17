@@ -8,6 +8,8 @@
 
 /* Begin PBXBuildFile section */
 		070DBBD1922FCA686BA86980 /* PickerApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = ECED2B0C9FFF371F2D2830E8 /* PickerApp.swift */; };
+		20672750563F7704A2E12968 /* AccessibilityFocusedElementClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1A317369207870B922BD86F /* AccessibilityFocusedElementClient.swift */; };
+		73C9A3360915B381ABEE1E55 /* PickerMonitorBootstrap.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2768B881833448DF49274D29 /* PickerMonitorBootstrap.swift */; };
 		A5B0B0C930F2C28D9048C70A /* PickerActionRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE9CFEFD284AE4D31C241F93 /* PickerActionRunner.swift */; };
 		AA3C651E565B79715E2F55D8 /* PickerPopupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9D8FB85AAF2DE058E45C5D3 /* PickerPopupView.swift */; };
 		AC1CEAA1A5374133F1B528AA /* PickerSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D6B5F1A0958297455D0C8399 /* PickerSettingsView.swift */; };
@@ -19,6 +21,7 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		2768B881833448DF49274D29 /* PickerMonitorBootstrap.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PickerMonitorBootstrap.swift; sourceTree = "<group>"; };
 		2A2405BBE80E0DD46C608462 /* Picker.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Picker.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		2AA7C59EF3AA07BEE0FC0F81 /* SelectionMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SelectionMonitor.swift; sourceTree = "<group>"; };
 		7431E375F64B5B3182481181 /* PopupModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PopupModels.swift; sourceTree = "<group>"; };
@@ -27,6 +30,7 @@
 		B9D8FB85AAF2DE058E45C5D3 /* PickerPopupView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PickerPopupView.swift; sourceTree = "<group>"; };
 		D2157B972B83B180BC3C4486 /* PickerPopupPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PickerPopupPanel.swift; sourceTree = "<group>"; };
 		D6B5F1A0958297455D0C8399 /* PickerSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PickerSettingsView.swift; sourceTree = "<group>"; };
+		E1A317369207870B922BD86F /* AccessibilityFocusedElementClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccessibilityFocusedElementClient.swift; sourceTree = "<group>"; };
 		ECED2B0C9FFF371F2D2830E8 /* PickerApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PickerApp.swift; sourceTree = "<group>"; };
 		EE9CFEFD284AE4D31C241F93 /* PickerActionRunner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PickerActionRunner.swift; sourceTree = "<group>"; };
 		F9F7E13A1C00DB6BAC330321 /* PickerPopupController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PickerPopupController.swift; sourceTree = "<group>"; };
@@ -77,7 +81,9 @@
 		FE7334C4D924C2BB0D08A85F /* Monitor */ = {
 			isa = PBXGroup;
 			children = (
+				E1A317369207870B922BD86F /* AccessibilityFocusedElementClient.swift */,
 				EE9CFEFD284AE4D31C241F93 /* PickerActionRunner.swift */,
+				2768B881833448DF49274D29 /* PickerMonitorBootstrap.swift */,
 				2AA7C59EF3AA07BEE0FC0F81 /* SelectionMonitor.swift */,
 			);
 			path = Monitor;
@@ -138,9 +144,11 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				20672750563F7704A2E12968 /* AccessibilityFocusedElementClient.swift in Sources */,
 				EE158140C983A04845DFCAF9 /* AccessibilityPermission.swift in Sources */,
 				A5B0B0C930F2C28D9048C70A /* PickerActionRunner.swift in Sources */,
 				070DBBD1922FCA686BA86980 /* PickerApp.swift in Sources */,
+				73C9A3360915B381ABEE1E55 /* PickerMonitorBootstrap.swift in Sources */,
 				CDFC46CF1977978633EB0D3C /* PickerPopupController.swift in Sources */,
 				BB7709435CC8F6E5BF748805 /* PickerPopupPanel.swift in Sources */,
 				AA3C651E565B79715E2F55D8 /* PickerPopupView.swift in Sources */,

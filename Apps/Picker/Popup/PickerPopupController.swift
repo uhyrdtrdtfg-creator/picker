@@ -161,9 +161,8 @@ public final class PickerPopupController {
         let abovePopupY = popupFrame.maxY + attachedPanelGap
         let belowPopupY = popupFrame.minY - attachedPanelGap - height
 
-        let popupIsAboveSelection = selectionBounds == .zero || popupFrame.minY >= selectionBounds.midY
-        let preferredY = popupIsAboveSelection ? abovePopupY : belowPopupY
-        let alternateY = popupIsAboveSelection ? belowPopupY : abovePopupY
+        let preferredY = belowPopupY
+        let alternateY = abovePopupY
 
         let preferredFits = preferredY >= visible.minY && (preferredY + height) <= visible.maxY
         let alternateFits = alternateY >= visible.minY && (alternateY + height) <= visible.maxY

@@ -29,6 +29,7 @@ struct PickerSettingsView: View {
     @AppStorage(PickerDefaultsKey.excludedBundleIdentifiers) private var excludedBundleIdentifiersText = ""
 
     @State private var isOpenAtLoginUnavailable = false
+    @State private var loginItemMessage = ""
 
     var body: some View {
         Form {
@@ -44,7 +45,7 @@ struct PickerSettingsView: View {
                     Toggle("Start at login", isOn: startAtLoginBinding)
 
                     if isOpenAtLoginUnavailable {
-                        Text("Open at Login is unavailable")
+                        Text(loginItemMessage.isEmpty ? "Open at Login is unavailable" : loginItemMessage)
                             .font(.caption)
                             .foregroundColor(.secondary)
                     }
@@ -152,6 +153,7 @@ struct PickerSettingsView: View {
             isOpenAtLoginUnavailable = (SMAppService.mainApp.status == .notFound)
         } catch {
             isOpenAtLoginUnavailable = true
+            loginItemMessage = error.localizedDescription
         }
     }
 }

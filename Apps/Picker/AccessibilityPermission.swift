@@ -61,10 +61,13 @@ enum AccessibilityPermission {
     }
 
     static var explanationText: String {
-        if usesDeviceControlPane {
-            return "Picker needs Device Control and Data Access to read the text you select in other apps and to perform actions for you. Enable Picker in \(settingsPathDescription)."
-        }
-        return "Picker needs Accessibility access to read the text you select in other apps and to perform actions for you. Enable Picker in \(settingsPathDescription)."
+        let pane = settingsPathDescription
+        return "Click the button so macOS adds Picker to the list. Then turn Picker on in \(pane). If it is missing, click + and choose Picker in Applications."
+    }
+
+    static func requestAccess() {
+        _ = isProcessTrusted(prompt: true)
+        openSystemSettings()
     }
 
     static var systemSettingsURL: URL {
@@ -92,7 +95,11 @@ struct OpenAccessibilitySettingsButton: View {
                 ? AccessibilityPermission.openSettingsButtonTitle
                 : AccessibilityPermission.requestButtonTitle
         ) {
-            action()
+            if isTrusted {
+                action()
+            } else {
+                AccessibilityPermission.requestAccess()
+            }
         }
     }
 }

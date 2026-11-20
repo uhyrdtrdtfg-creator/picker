@@ -68,12 +68,7 @@ public final class PickerPopupController {
 
         panel.setFrame(targetFrame, display: true)
         installEventMonitors()
-
-        if NSApplication.shared.isActive {
-            panel.makeKeyAndOrderFront(nil)
-        } else {
-            panel.orderFrontRegardless()
-        }
+        panel.orderFrontRegardless()
     }
 
     #if canImport(PickerActions)
@@ -121,7 +116,7 @@ public final class PickerPopupController {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            Task { @MainActor [weak self] in
+            MainActor.assumeIsolated {
                 self?.hide()
             }
         }
@@ -131,7 +126,7 @@ public final class PickerPopupController {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            Task { @MainActor [weak self] in
+            MainActor.assumeIsolated {
                 self?.hide()
             }
         }
@@ -141,7 +136,7 @@ public final class PickerPopupController {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            Task { @MainActor [weak self] in
+            MainActor.assumeIsolated {
                 self?.hide()
             }
         }

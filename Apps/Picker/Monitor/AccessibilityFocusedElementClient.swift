@@ -25,37 +25,208 @@ protocol FocusedTextEditing {
     func insertAtFocusedPosition(_ text: String, in target: AnyObject?) -> Bool
 }
 
+private final class AccessibilityApplicationSupport: @unchecked Sendable {
+    static let shared = AccessibilityApplicationSupport()
+
+    private static let manualAccessibilityAttribute = "AXManualAccessibility"
+    private static let enhancedUserInterfaceAttribute = "AXEnhancedUserInterface"
+    private static let refreshInterval: CFAbsoluteTime = 5.0
+    private static let browserBundlePrefixes = [
+        "com.google.chrome",
+        "org.chromium.",
+        "com.brave.browser",
+        "com.microsoft.edgemac",
+        "company.thebrowser.",
+        "com.operasoftware.",
+        "com.vivaldi.",
+        "com.citrolabs.ego",
+        "org.mozilla.",
+        "app.zen-browser.",
+        "ai.perplexity.comet",
+        "com.kagi.",
+        "com.duckduckgo.",
+        "com.sigmaos.",
+        "org.waterfoxproject.",
+        "io.gitlab.librewolf"
+    ]
+
+    private let lock = NSLock()
+    private var preparedTimestamps: [pid_t: CFAbsoluteTime] = [:]
+    private var browserBundleCache: [String: Bool] = [:]
+
+    func prepareApplicationIfNeeded(pid: pid_t, bundleID: String?, bundleURL: URL?) {
+        guard pid != 0, pid != ProcessInfo.processInfo.processIdentifier else { return }
+
+        let now = CFAbsoluteTimeGetCurrent()
+        lock.lock()
+        if let last = preparedTimestamps[pid], now - last < Self.refreshInterval {
+            lock.unlock()
+            return
+        }
+        preparedTimestamps[pid] = now
+        if preparedTimestamps.count > 128 {
+            preparedTimestamps = preparedTimestamps.filter { now - $0.value < 60.0 }
+        }
+        lock.unlock()
+
+        let appElement = AXUIElementCreateApplication(pid)
+
+        var manualSettable = DarwinBoolean(false)
+        if AXUIElementIsAttributeSettable(
+            appElement,
+            Self.manualAccessibilityAttribute as CFString,
+            &manualSettable
+        ) == .success, manualSettable.boolValue {
+            if !readBoolAttribute(Self.manualAccessibilityAttribute, from: appElement) {
+                _ = AXUIElementSetAttributeValue(
+                    appElement,
+                    Self.manualAccessibilityAttribute as CFString,
+                    kCFBooleanTrue
+                )
+            }
+            return
+        }
+
+        guard requiresEnhancedUserInterface(bundleID: bundleID, bundleURL: bundleURL) else {
+            return
+        }
+
+        var enhancedSettable = DarwinBoolean(false)
+        if AXUIElementIsAttributeSettable(
+            appElement,
+            Self.enhancedUserInterfaceAttribute as CFString,
+            &enhancedSettable
+        ) == .success, enhancedSettable.boolValue {
+            if !readBoolAttribute(Self.enhancedUserInterfaceAttribute, from: appElement) {
+                _ = AXUIElementSetAttributeValue(
+                    appElement,
+                    Self.enhancedUserInterfaceAttribute as CFString,
+                    kCFBooleanTrue
+                )
+            }
+        }
+    }
+
+    private func readBoolAttribute(_ attribute: String, from element: AXUIElement) -> Bool {
+        var valueRef: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, attribute as CFString, &valueRef) == .success else {
+            return false
+        }
+        return (valueRef as? Bool) ?? false
+    }
+
+    private func requiresEnhancedUserInterface(bundleID: String?, bundleURL: URL?) -> Bool {
+        let normalizedBundleID = (bundleID ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if Self.browserBundlePrefixes.contains(where: { normalizedBundleID.hasPrefix($0) }) {
+            return true
+        }
+
+        let cacheKey = bundleURL?.path ?? normalizedBundleID
+        guard !cacheKey.isEmpty else { return false }
+
+        lock.lock()
+        if let cached = browserBundleCache[cacheKey] {
+            lock.unlock()
+            return cached
+        }
+        lock.unlock()
+
+        let detected = Self.detectChromiumOrGeckoBundle(at: bundleURL)
+        lock.lock()
+        browserBundleCache[cacheKey] = detected
+        lock.unlock()
+        return detected
+    }
+
+    private static func detectChromiumOrGeckoBundle(at bundleURL: URL?) -> Bool {
+        guard let bundleURL else { return false }
+        let fm = FileManager.default
+        let contentsURL = bundleURL.appendingPathComponent("Contents", isDirectory: true)
+
+        let geckoMarkers = [
+            contentsURL.appendingPathComponent("MacOS/XUL").path,
+            contentsURL.appendingPathComponent("MacOS/libmozglue.dylib").path
+        ]
+        if geckoMarkers.contains(where: { fm.fileExists(atPath: $0) }) {
+            return true
+        }
+
+        let frameworksURL = contentsURL.appendingPathComponent("Frameworks", isDirectory: true)
+        guard let entries = try? fm.contentsOfDirectory(
+            at: frameworksURL,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        ) else {
+            return false
+        }
+
+        for entry in entries where entry.pathExtension == "framework" {
+            let candidates = [
+                entry.appendingPathComponent("Libraries/libEGL.dylib").path,
+                entry.appendingPathComponent("Versions/Current/Libraries/libEGL.dylib").path,
+                entry.appendingPathComponent("Helpers").path,
+                entry.appendingPathComponent("Versions/Current/Helpers").path
+            ]
+            if candidates.contains(where: { fm.fileExists(atPath: $0) }) {
+                return true
+            }
+        }
+        return false
+    }
+}
+
 struct AccessibilityFocusedElementClient: FocusedSelectionReading, FocusedTextEditing {
     private static let axBoundsAttribute = "AXBounds"
     private static let axFrameAttribute = "AXFrame"
     private static let axSelectedTextMarkerRangeAttribute = "AXSelectedTextMarkerRange"
     private static let axStringForTextMarkerRangeAttribute = "AXStringForTextMarkerRange"
+    private static let axAttributedStringForTextMarkerRangeAttribute = "AXAttributedStringForTextMarkerRange"
     private static let axBoundsForTextMarkerRangeAttribute = "AXBoundsForTextMarkerRange"
+    private static let containerRoles: Set<String> = [
+        kAXWindowRole as String,
+        kAXSplitGroupRole as String,
+        kAXTabGroupRole as String,
+        kAXScrollAreaRole as String,
+        kAXGroupRole as String,
+        kAXLayoutAreaRole as String,
+        kAXBrowserRole as String,
+        kAXSheetRole as String,
+        "AXWebArea",
+        "AXDocument"
+    ]
+    private static let documentSelectionRoles: Set<String> = [
+        "AXWebArea",
+        "AXDocument",
+        kAXTextAreaRole as String
+    ]
 
     func readFocusedSelection() -> FocusedSelectionPollOutcome {
         let frontmostApp = NSWorkspace.shared.frontmostApplication
         let fallbackBundleID = frontmostApp?.bundleIdentifier
         let fallbackPID = frontmostApp?.processIdentifier
 
-        guard let focusedElement = copyFocusedElement(frontmostPID: fallbackPID) else {
+        if let pid = fallbackPID, pid != 0 {
+            AccessibilityApplicationSupport.shared.prepareApplicationIfNeeded(
+                pid: pid,
+                bundleID: fallbackBundleID,
+                bundleURL: frontmostApp?.bundleURL
+            )
+        }
+
+        guard let match = findSelectionElement(frontmostPID: fallbackPID) else {
             return .noSelection(bundleID: fallbackBundleID, processIdentifier: fallbackPID)
         }
 
-        var elementPID: pid_t = 0
-        AXUIElementGetPid(focusedElement, &elementPID)
+        let elementPID = pid(of: match.element)
         let effectivePID = elementPID != 0 ? elementPID : (fallbackPID ?? 0)
         let bundleID = NSRunningApplication(processIdentifier: effectivePID)?.bundleIdentifier
             ?? fallbackBundleID
             ?? ""
 
-        guard let selectedText = readSelectedText(from: focusedElement), !selectedText.isEmpty else {
-            return .noSelection(bundleID: bundleID, processIdentifier: effectivePID)
-        }
-
-        let bounds = readSelectionBounds(from: focusedElement)
+        let bounds = readSelectionBounds(from: match.element)
         return .selection(
             FocusedElementSelection(
-                text: selectedText,
+                text: match.text,
                 bounds: bounds,
                 bundleID: bundleID,
                 processIdentifier: effectivePID
@@ -64,25 +235,54 @@ struct AccessibilityFocusedElementClient: FocusedSelectionReading, FocusedTextEd
     }
 
     func captureFocusedTarget() -> AnyObject? {
-        copyFocusedElement(frontmostPID: NSWorkspace.shared.frontmostApplication?.processIdentifier)
+        let frontmostApp = NSWorkspace.shared.frontmostApplication
+        let frontmostPID = frontmostApp?.processIdentifier
+        if let pid = frontmostPID, pid != 0 {
+            AccessibilityApplicationSupport.shared.prepareApplicationIfNeeded(
+                pid: pid,
+                bundleID: frontmostApp?.bundleIdentifier,
+                bundleURL: frontmostApp?.bundleURL
+            )
+        }
+        if let match = findSelectionElement(frontmostPID: frontmostPID) {
+            return match.element
+        }
+        return copyFocusedElement(frontmostPID: frontmostPID)
     }
 
     func copySelectedAttributedText(from target: AnyObject?) -> NSAttributedString? {
-        guard let element = resolveElement(from: target),
-              let rangeAX = copySelectedRangeAXValue(from: element) else {
+        guard let element = resolveElement(from: target) else {
             return nil
         }
 
-        var attributedRef: CFTypeRef?
-        guard AXUIElementCopyParameterizedAttributeValue(
-            element,
-            kAXAttributedStringForRangeParameterizedAttribute as CFString,
-            rangeAX,
-            &attributedRef
-        ) == .success else {
-            return nil
+        if let rangeAX = copySelectedRangeAXValue(from: element) {
+            var range = CFRange(location: 0, length: 0)
+            if AXValueGetValue(rangeAX, .cfRange, &range), range.length > 0 {
+                var attributedRef: CFTypeRef?
+                if AXUIElementCopyParameterizedAttributeValue(
+                    element,
+                    kAXAttributedStringForRangeParameterizedAttribute as CFString,
+                    rangeAX,
+                    &attributedRef
+                ) == .success, let attributed = attributedRef as? NSAttributedString, attributed.length > 0 {
+                    return attributed
+                }
+            }
         }
-        return attributedRef as? NSAttributedString
+
+        if let markerRange = copySelectedTextMarkerRange(from: element) {
+            var markerAttrRef: CFTypeRef?
+            if AXUIElementCopyParameterizedAttributeValue(
+                element,
+                Self.axAttributedStringForTextMarkerRangeAttribute as CFString,
+                markerRange,
+                &markerAttrRef
+            ) == .success, let attributed = markerAttrRef as? NSAttributedString, attributed.length > 0 {
+                return attributed
+            }
+        }
+
+        return nil
     }
 
     func setSelectedText(_ text: String, in target: AnyObject?) -> Bool {
@@ -164,7 +364,193 @@ struct AccessibilityFocusedElementClient: FocusedSelectionReading, FocusedTextEd
         if let target, CFGetTypeID(target) == AXUIElementGetTypeID() {
             return unsafeBitCast(target, to: AXUIElement.self)
         }
-        return copyFocusedElement(frontmostPID: NSWorkspace.shared.frontmostApplication?.processIdentifier)
+        let frontmostPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
+        if let match = findSelectionElement(frontmostPID: frontmostPID) {
+            return match.element
+        }
+        return copyFocusedElement(frontmostPID: frontmostPID)
+    }
+
+    private func findSelectionElement(frontmostPID: pid_t?) -> (element: AXUIElement, text: String)? {
+        var visited: [AXUIElement] = []
+        var focusedCandidates: [AXUIElement] = []
+
+        let systemWide = AXUIElementCreateSystemWide()
+        var focusedRef: CFTypeRef?
+        if AXUIElementCopyAttributeValue(
+            systemWide,
+            kAXFocusedUIElementAttribute as CFString,
+            &focusedRef
+        ) == .success, let element = asAXUIElement(focusedRef) {
+            let elemPID = pid(of: element)
+            if frontmostPID == nil || frontmostPID == 0 || elemPID == 0 || elemPID == frontmostPID {
+                focusedCandidates.append(element)
+            }
+        }
+
+        if let frontPID = frontmostPID, frontPID != 0 {
+            let appElement = AXUIElementCreateApplication(frontPID)
+            var appFocusedRef: CFTypeRef?
+            if AXUIElementCopyAttributeValue(
+                appElement,
+                kAXFocusedUIElementAttribute as CFString,
+                &appFocusedRef
+            ) == .success, let appFocused = asAXUIElement(appFocusedRef),
+               !focusedCandidates.contains(where: { CFEqual($0, appFocused) }) {
+                focusedCandidates.append(appFocused)
+            }
+        }
+
+        for candidate in focusedCandidates {
+            if let match = checkElementAndAncestors(
+                candidate,
+                expectedPID: frontmostPID,
+                visited: &visited
+            ) {
+                return match
+            }
+        }
+
+        if let frontPID = frontmostPID, frontPID != 0, (NSEvent.pressedMouseButtons & 1) == 0 {
+            let quartzMouse = convertAppKitPointToQuartz(NSEvent.mouseLocation)
+            var hitRef: AXUIElement?
+            if AXUIElementCopyElementAtPosition(
+                systemWide,
+                Float(quartzMouse.x),
+                Float(quartzMouse.y),
+                &hitRef
+            ) == .success, let hitElement = hitRef, pid(of: hitElement) == frontPID {
+                if let match = checkElementAndAncestors(
+                    hitElement,
+                    expectedPID: frontPID,
+                    visited: &visited
+                ) {
+                    return match
+                }
+            }
+        }
+
+        if let frontPID = frontmostPID, frontPID != 0, shouldSearchFocusedWindow(focusedCandidates: focusedCandidates) {
+            let appElement = AXUIElementCreateApplication(frontPID)
+            if let windowMatch = searchWindowSelection(in: appElement, visited: &visited) {
+                return windowMatch
+            }
+        }
+
+        return nil
+    }
+
+    private func shouldSearchFocusedWindow(focusedCandidates: [AXUIElement]) -> Bool {
+        guard let first = focusedCandidates.first else { return true }
+        guard let role = copyRole(of: first) else { return true }
+        if role == (kAXTextAreaRole as String) || role == "AXWebArea" {
+            return false
+        }
+        return true
+    }
+
+    private func checkElementAndAncestors(
+        _ startElement: AXUIElement,
+        expectedPID: pid_t?,
+        visited: inout [AXUIElement]
+    ) -> (element: AXUIElement, text: String)? {
+        var current: AXUIElement? = startElement
+        var steps = 0
+
+        while let element = current, steps < 10 {
+            steps += 1
+
+            if let expectedPID, expectedPID != 0 {
+                let currentPID = pid(of: element)
+                if currentPID != 0 && currentPID != expectedPID {
+                    break
+                }
+            }
+
+            if visited.contains(where: { CFEqual($0, element) }) {
+                break
+            }
+            visited.append(element)
+
+            let role = copyRole(of: element)
+            if role == (kAXApplicationRole as String) {
+                break
+            }
+
+            if role != "AXSecureTextField",
+               let text = readSelectedText(from: element),
+               !text.isEmpty {
+                return (element, text)
+            }
+
+            if role == (kAXWindowRole as String) {
+                break
+            }
+
+            var parentRef: CFTypeRef?
+            guard AXUIElementCopyAttributeValue(
+                element,
+                kAXParentAttribute as CFString,
+                &parentRef
+            ) == .success, let parent = asAXUIElement(parentRef) else {
+                break
+            }
+            current = parent
+        }
+
+        return nil
+    }
+
+    private func searchWindowSelection(
+        in appElement: AXUIElement,
+        visited: inout [AXUIElement]
+    ) -> (element: AXUIElement, text: String)? {
+        var windowElement: AXUIElement?
+        for attr in [kAXFocusedWindowAttribute as String, kAXMainWindowAttribute as String] {
+            var windowRef: CFTypeRef?
+            if AXUIElementCopyAttributeValue(appElement, attr as CFString, &windowRef) == .success,
+               let resolved = asAXUIElement(windowRef) {
+                windowElement = resolved
+                break
+            }
+        }
+        guard let rootWindow = windowElement else { return nil }
+
+        var queue: [(element: AXUIElement, depth: Int)] = [(rootWindow, 0)]
+        var index = 0
+        var inspectedContainers = 0
+
+        while index < queue.count && inspectedContainers < 45 {
+            let (node, depth) = queue[index]
+            index += 1
+            inspectedContainers += 1
+
+            let role = copyRole(of: node) ?? ""
+            if Self.documentSelectionRoles.contains(role),
+               !visited.contains(where: { CFEqual($0, node) }) {
+                visited.append(node)
+                if let text = readSelectedText(from: node), !text.isEmpty {
+                    return (node, text)
+                }
+            }
+
+            guard depth < 7, Self.containerRoles.contains(role) else { continue }
+
+            var childrenRef: CFTypeRef?
+            guard AXUIElementCopyAttributeValue(
+                node,
+                kAXChildrenAttribute as CFString,
+                &childrenRef
+            ) == .success, let children = childrenRef as? [AXUIElement] else {
+                continue
+            }
+
+            for child in children.prefix(20) {
+                queue.append((child, depth + 1))
+            }
+        }
+
+        return nil
     }
 
     private func copyFocusedElement(frontmostPID: pid_t?) -> AXUIElement? {
@@ -209,9 +595,49 @@ struct AccessibilityFocusedElementClient: FocusedSelectionReading, FocusedTextEd
                     kAXStringForRangeParameterizedAttribute as CFString,
                     rangeValue,
                     &parameterizedTextRef
-                ) == .success, let text = parameterizedTextRef as? String, !text.isEmpty {
-                    return text
+                ) == .success {
+                    if let text = parameterizedTextRef as? String, !text.isEmpty {
+                        return text
+                    }
+                    if let attributed = parameterizedTextRef as? NSAttributedString, !attributed.string.isEmpty {
+                        return attributed.string
+                    }
                 }
+
+                var attrRangeRef: CFTypeRef?
+                if AXUIElementCopyParameterizedAttributeValue(
+                    element,
+                    kAXAttributedStringForRangeParameterizedAttribute as CFString,
+                    rangeValue,
+                    &attrRangeRef
+                ) == .success, let attributed = attrRangeRef as? NSAttributedString, !attributed.string.isEmpty {
+                    return attributed.string
+                }
+            }
+        }
+
+        var rangesRef: CFTypeRef?
+        if AXUIElementCopyAttributeValue(
+            element,
+            kAXSelectedTextRangesAttribute as CFString,
+            &rangesRef
+        ) == .success, let rangeValues = rangesRef as? [AXValue], !rangeValues.isEmpty {
+            var pieces: [String] = []
+            for rangeVal in rangeValues where AXValueGetType(rangeVal) == .cfRange {
+                var range = CFRange(location: 0, length: 0)
+                guard AXValueGetValue(rangeVal, .cfRange, &range), range.length > 0 else { continue }
+                var pieceRef: CFTypeRef?
+                if AXUIElementCopyParameterizedAttributeValue(
+                    element,
+                    kAXStringForRangeParameterizedAttribute as CFString,
+                    rangeVal,
+                    &pieceRef
+                ) == .success, let piece = pieceRef as? String, !piece.isEmpty {
+                    pieces.append(piece)
+                }
+            }
+            if !pieces.isEmpty {
+                return pieces.joined(separator: "\n")
             }
         }
 
@@ -222,8 +648,28 @@ struct AccessibilityFocusedElementClient: FocusedSelectionReading, FocusedTextEd
                 Self.axStringForTextMarkerRangeAttribute as CFString,
                 markerRange,
                 &markerTextRef
-            ) == .success, let text = markerTextRef as? String {
-                return text
+            ) == .success {
+                if let text = markerTextRef as? String, !text.isEmpty {
+                    return text
+                }
+                if let attributed = markerTextRef as? NSAttributedString, !attributed.string.isEmpty {
+                    return attributed.string
+                }
+            }
+
+            var markerAttrRef: CFTypeRef?
+            if AXUIElementCopyParameterizedAttributeValue(
+                element,
+                Self.axAttributedStringForTextMarkerRangeAttribute as CFString,
+                markerRange,
+                &markerAttrRef
+            ) == .success {
+                if let attributed = markerAttrRef as? NSAttributedString, !attributed.string.isEmpty {
+                    return attributed.string
+                }
+                if let text = markerAttrRef as? String, !text.isEmpty {
+                    return text
+                }
             }
         }
         return nil
@@ -231,14 +677,17 @@ struct AccessibilityFocusedElementClient: FocusedSelectionReading, FocusedTextEd
 
     private func readSelectionBounds(from element: AXUIElement) -> CGRect {
         if let rangeValue = copySelectedRangeAXValue(from: element) {
-            var boundsRef: CFTypeRef?
-            if AXUIElementCopyParameterizedAttributeValue(
-                element,
-                kAXBoundsForRangeParameterizedAttribute as CFString,
-                rangeValue,
-                &boundsRef
-            ) == .success, let quartzRect = extractNonEmptyRect(from: boundsRef) {
-                return convertQuartzToAppKitScreen(quartzRect)
+            var range = CFRange(location: 0, length: 0)
+            if AXValueGetValue(rangeValue, .cfRange, &range), range.length > 0 {
+                var boundsRef: CFTypeRef?
+                if AXUIElementCopyParameterizedAttributeValue(
+                    element,
+                    kAXBoundsForRangeParameterizedAttribute as CFString,
+                    rangeValue,
+                    &boundsRef
+                ) == .success, let quartzRect = extractNonEmptyRect(from: boundsRef) {
+                    return convertQuartzToAppKitScreen(quartzRect)
+                }
             }
         }
 
@@ -258,14 +707,48 @@ struct AccessibilityFocusedElementClient: FocusedSelectionReading, FocusedTextEd
             var rectRef: CFTypeRef?
             if AXUIElementCopyAttributeValue(element, attribute as CFString, &rectRef) == .success,
                let quartzRect = extractNonEmptyRect(from: rectRef) {
-                return convertQuartzToAppKitScreen(quartzRect)
+                return anchorWithinElementRect(convertQuartzToAppKitScreen(quartzRect))
             }
         }
 
         if let elementRect = readPositionAndSize(from: element) {
-            return convertQuartzToAppKitScreen(elementRect)
+            return anchorWithinElementRect(convertQuartzToAppKitScreen(elementRect))
         }
-        return CGRect(origin: NSEvent.mouseLocation, size: .zero)
+
+        let mouse = NSEvent.mouseLocation
+        return CGRect(x: mouse.x, y: mouse.y - 10, width: 1, height: 20)
+    }
+
+    private func anchorWithinElementRect(_ appKitRect: CGRect) -> CGRect {
+        guard appKitRect.height > 80 else {
+            return appKitRect
+        }
+        let mouse = NSEvent.mouseLocation
+        if appKitRect.insetBy(dx: -20, dy: -20).contains(mouse) {
+            return CGRect(x: mouse.x, y: mouse.y - 10, width: 1, height: 20)
+        }
+        return CGRect(x: appKitRect.midX, y: appKitRect.midY - 10, width: 1, height: 20)
+    }
+
+    private func pid(of element: AXUIElement) -> pid_t {
+        var elementPID: pid_t = 0
+        AXUIElementGetPid(element, &elementPID)
+        return elementPID
+    }
+
+    private func copyRole(of element: AXUIElement) -> String? {
+        var roleRef: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, kAXRoleAttribute as CFString, &roleRef) == .success else {
+            return nil
+        }
+        return roleRef as? String
+    }
+
+    private func convertAppKitPointToQuartz(_ appKitPoint: NSPoint) -> CGPoint {
+        guard let primaryHeight = NSScreen.screens.first?.frame.height, primaryHeight > 0 else {
+            return appKitPoint
+        }
+        return CGPoint(x: appKitPoint.x, y: primaryHeight - appKitPoint.y)
     }
 
     private func copySelectedTextMarkerRange(from element: AXUIElement) -> CFTypeRef? {

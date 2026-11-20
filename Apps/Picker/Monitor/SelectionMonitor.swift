@@ -48,9 +48,17 @@ final class SelectionMonitor {
     private var isStarted = false
     private var didReportPermissionMissing = false
     private var lastObservedText = ""
+    private var lastObservedBundleID = ""
     private var pollTimer: Timer?
+    private var trustRetryTimer: Timer?
+    private var activityToken: NSObjectProtocol?
     private var defaultsObserver: NSObjectProtocol?
     private var accessibilityObserver: NSObjectProtocol?
+    private var workspaceActivateObserver: NSObjectProtocol?
+    private var appBecomeActiveObserver: NSObjectProtocol?
+    private var globalMouseDownMonitor: Any?
+    private var globalMouseUpMonitor: Any?
+    private var mouseDownScreenLocation: NSPoint?
 
     init(
         userDefaults: UserDefaults = .standard,
@@ -71,8 +79,8 @@ final class SelectionMonitor {
         self.onSelection = onSelection
         self.onPermissionMissing = onPermissionMissing
 
-        let namespacedVal = userDefaults.object(forKey: Self.appearAutomaticallyDefaultsKey) as? Bool
-        let legacyVal = userDefaults.object(forKey: Self.legacyAppearAutomaticallyKey) as? Bool
+        let namespacedVal = Self.readBoolValue(from: userDefaults, forKey: Self.appearAutomaticallyDefaultsKey)
+        let legacyVal = Self.readBoolValue(from: userDefaults, forKey: Self.legacyAppearAutomaticallyKey)
         self.trackedNamespacedAppearValue = namespacedVal
         self.trackedLegacyAppearValue = legacyVal
         self.storedAppearAutomatically = namespacedVal ?? legacyVal ?? true
@@ -91,19 +99,46 @@ final class SelectionMonitor {
             queue: .main
         ) { [weak self] _ in
             self?.updatePollingState()
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
-                self?.updatePollingState()
+            for delay in [0.25, 1.0] {
+                DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                    self?.updatePollingState()
+                }
             }
+        }
+
+        self.workspaceActivateObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didActivateApplicationNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            guard let self, self.isStarted, self.storedAppearAutomatically, !self.isPolling else { return }
+            self.updatePollingState()
+        }
+
+        self.appBecomeActiveObserver = notificationCenter.addObserver(
+            forName: NSApplication.didBecomeActiveNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            guard let self, self.isStarted, self.storedAppearAutomatically, !self.isPolling else { return }
+            self.updatePollingState()
         }
     }
 
     deinit {
         stopPolling()
+        stopTrustRetryTimer()
         if let defaultsObserver {
             notificationCenter.removeObserver(defaultsObserver)
         }
         if let accessibilityObserver {
             DistributedNotificationCenter.default().removeObserver(accessibilityObserver)
+        }
+        if let workspaceActivateObserver {
+            NSWorkspace.shared.notificationCenter.removeObserver(workspaceActivateObserver)
+        }
+        if let appBecomeActiveObserver {
+            notificationCenter.removeObserver(appBecomeActiveObserver)
         }
     }
 
@@ -116,21 +151,25 @@ final class SelectionMonitor {
     func stop() {
         isStarted = false
         stopPolling()
+        stopTrustRetryTimer()
     }
 
     func pollOnce() {
         guard storedAppearAutomatically else {
             stopPolling()
+            stopTrustRetryTimer()
             return
         }
 
         guard isAccessibilityTrusted() else {
             stopPolling()
+            startTrustRetryIfNeeded()
             reportPermissionMissingIfNeeded()
             return
         }
 
         didReportPermissionMissing = false
+        stopTrustRetryTimer()
 
         switch selectionReader.readFocusedSelection() {
         case .noSelection(let bundleID, let pid):
@@ -138,22 +177,25 @@ final class SelectionMonitor {
                 return
             }
             lastObservedText = ""
+            lastObservedBundleID = ""
 
         case .selection(let current):
             if isSelfOrExcluded(bundleID: current.bundleID, processIdentifier: current.processIdentifier) {
                 return
             }
 
-            guard !current.text.isEmpty else {
+            guard !current.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                 lastObservedText = ""
+                lastObservedBundleID = ""
                 return
             }
 
-            guard current.text != lastObservedText else {
+            guard current.text != lastObservedText || current.bundleID != lastObservedBundleID else {
                 return
             }
 
             lastObservedText = current.text
+            lastObservedBundleID = current.bundleID
             lastSelection = (current.text, current.bounds, current.bundleID)
             onSelection?(current.text, current.bounds, current.bundleID)
         }
@@ -204,11 +246,29 @@ final class SelectionMonitor {
         return excludedBundleIDs().contains(rawBundleID.lowercased())
     }
 
+    private static func readBoolValue(from defaults: UserDefaults, forKey key: String) -> Bool? {
+        guard let raw = defaults.object(forKey: key) else { return nil }
+        if let boolVal = raw as? Bool {
+            return boolVal
+        }
+        if let strVal = (raw as? String)?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+            switch strVal {
+            case "true", "yes", "1":
+                return true
+            case "false", "no", "0":
+                return false
+            default:
+                return nil
+            }
+        }
+        return nil
+    }
+
     private func syncAppearAutomaticallyFromDefaults() {
         guard !isUpdatingDefaultsInternally else { return }
 
-        let newNamespaced = userDefaults.object(forKey: Self.appearAutomaticallyDefaultsKey) as? Bool
-        let newLegacy = userDefaults.object(forKey: Self.legacyAppearAutomaticallyKey) as? Bool
+        let newNamespaced = Self.readBoolValue(from: userDefaults, forKey: Self.appearAutomaticallyDefaultsKey)
+        let newLegacy = Self.readBoolValue(from: userDefaults, forKey: Self.legacyAppearAutomaticallyKey)
 
         let resolved: Bool
         if newNamespaced != trackedNamespacedAppearValue {
@@ -231,21 +291,31 @@ final class SelectionMonitor {
     private func updatePollingState() {
         guard isStarted, storedAppearAutomatically else {
             stopPolling()
+            stopTrustRetryTimer()
             return
         }
 
         guard isAccessibilityTrusted() else {
             stopPolling()
+            startTrustRetryIfNeeded()
             reportPermissionMissingIfNeeded()
             return
         }
 
         didReportPermissionMissing = false
+        stopTrustRetryTimer()
         startPollingIfNeeded()
     }
 
     private func startPollingIfNeeded() {
         guard pollTimer == nil else { return }
+        if activityToken == nil {
+            activityToken = ProcessInfo.processInfo.beginActivity(
+                options: .userInitiatedAllowingIdleSystemSleep,
+                reason: "Monitor text selection across applications"
+            )
+        }
+        installMouseSelectionMonitors()
         let timer = Timer(timeInterval: Self.pollInterval, repeats: true) { [weak self] _ in
             guard (NSEvent.pressedMouseButtons & 1) == 0 else { return }
             self?.pollOnce()
@@ -257,6 +327,73 @@ final class SelectionMonitor {
     private func stopPolling() {
         pollTimer?.invalidate()
         pollTimer = nil
+        removeMouseSelectionMonitors()
+        if let token = activityToken {
+            ProcessInfo.processInfo.endActivity(token)
+            activityToken = nil
+        }
+    }
+
+    private func startTrustRetryIfNeeded() {
+        guard trustRetryTimer == nil else { return }
+        let timer = Timer(timeInterval: 1.5, repeats: true) { [weak self] _ in
+            guard let self else { return }
+            if self.isAccessibilityTrusted() {
+                self.updatePollingState()
+            }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        trustRetryTimer = timer
+    }
+
+    private func stopTrustRetryTimer() {
+        trustRetryTimer?.invalidate()
+        trustRetryTimer = nil
+    }
+
+    private func installMouseSelectionMonitors() {
+        removeMouseSelectionMonitors()
+
+        globalMouseDownMonitor = NSEvent.addGlobalMonitorForEvents(matching: .leftMouseDown) { [weak self] _ in
+            self?.mouseDownScreenLocation = NSEvent.mouseLocation
+        }
+
+        globalMouseUpMonitor = NSEvent.addGlobalMonitorForEvents(matching: .leftMouseUp) { [weak self] event in
+            let upLocation = NSEvent.mouseLocation
+            let clickCount = event.clickCount
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.isStarted, self.isPolling else { return }
+                let dragDistance: CGFloat
+                if let down = self.mouseDownScreenLocation {
+                    dragDistance = hypot(upLocation.x - down.x, upLocation.y - down.y)
+                } else {
+                    dragDistance = 0
+                }
+                self.mouseDownScreenLocation = nil
+
+                if clickCount >= 2 || dragDistance >= 3 {
+                    self.lastObservedText = ""
+                }
+
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.06) { [weak self] in
+                    guard let self, self.isStarted, self.isPolling else { return }
+                    guard (NSEvent.pressedMouseButtons & 1) == 0 else { return }
+                    self.pollOnce()
+                }
+            }
+        }
+    }
+
+    private func removeMouseSelectionMonitors() {
+        if let down = globalMouseDownMonitor {
+            NSEvent.removeMonitor(down)
+            globalMouseDownMonitor = nil
+        }
+        if let up = globalMouseUpMonitor {
+            NSEvent.removeMonitor(up)
+            globalMouseUpMonitor = nil
+        }
+        mouseDownScreenLocation = nil
     }
 
     private func reportPermissionMissingIfNeeded() {

@@ -1,11 +1,17 @@
 import AppKit
 import SwiftUI
 
+private final class FirstMouseHostingView<Content: View>: NSHostingView<Content> {
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+        true
+    }
+}
+
 @MainActor
 public final class PickerPopupPanel: NSPanel {
     public var onResign: (() -> Void)?
 
-    private var hostingView: NSHostingView<PickerPopupView>?
+    private var hostingView: FirstMouseHostingView<PickerPopupView>?
     private var isPerformingResignHide = false
 
     public init(contentRect: NSRect = NSRect(x: 0, y: 0, width: 120, height: 34)) {
@@ -46,12 +52,12 @@ public final class PickerPopupPanel: NSPanel {
         onAction: @escaping (String) -> Void
     ) -> CGSize {
         let popupView = PickerPopupView(actions: actions, onAction: onAction)
-        let host: NSHostingView<PickerPopupView>
+        let host: FirstMouseHostingView<PickerPopupView>
         if let existing = hostingView {
             existing.rootView = popupView
             host = existing
         } else {
-            let created = NSHostingView(rootView: popupView)
+            let created = FirstMouseHostingView(rootView: popupView)
             contentView = created
             hostingView = created
             host = created
@@ -66,14 +72,14 @@ public final class PickerPopupPanel: NSPanel {
 
     private func configurePanel() {
         isFloatingPanel = true
-        level = .floating
-        hidesOnDeactivate = true
+        level = .popUpMenu
+        hidesOnDeactivate = false
         isOpaque = false
         backgroundColor = .clear
         hasShadow = true
         isMovableByWindowBackground = false
         isReleasedWhenClosed = false
-        becomesKeyOnlyIfNeeded = false
+        becomesKeyOnlyIfNeeded = true
         appearance = NSAppearance(named: .aqua)
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient, .ignoresCycle]
         animationBehavior = .utilityWindow

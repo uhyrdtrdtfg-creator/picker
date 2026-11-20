@@ -24,13 +24,24 @@ extension SelectionMonitor {
             )
         }
 
+        popupController.onSendToOrca = { [weak self] agent, selection, note, completion in
+            let documentPath = self?.lastDocumentPath
+            PickerOrcaLauncher.launch(
+                agent: agent,
+                selection: selection,
+                note: note,
+                frontDocumentPath: documentPath,
+                completion: completion
+            )
+        }
+
         onSelection = { text, bounds, _ in
             actionRunner.captureSelectionTarget()
             currentSelectionText = text
             currentSelectionBounds = bounds
             popupController.preferAbove = PickerMonitorBootstrap.preferredPopupAbove()
             let actions = PickerMonitorBootstrap.popupActions(for: text, using: actionRunner)
-            popupController.show(actions: actions, near: bounds)
+            popupController.show(actions: actions, near: bounds, selectionText: text)
         }
     }
 }
@@ -98,7 +109,7 @@ final class PickerMonitorBootstrap {
     func showLastSelection() {
         guard let last = monitor.lastSelection, !last.text.isEmpty else { return }
         let actions = Self.popupActions(for: last.text, using: actionRunner)
-        popupController.show(actions: actions, near: last.bounds)
+        popupController.show(actions: actions, near: last.bounds, selectionText: last.text)
     }
 
     static func popupActions(for selection: String, using runner: PickerActionRunner) -> [PopupAction] {
@@ -133,6 +144,10 @@ final class PickerMonitorBootstrap {
            runner.isWordMisspelled(trimmed),
            !runner.spellingGuesses(for: trimmed).isEmpty {
             actions.append(.spelling)
+        }
+
+        if !trimmed.isEmpty {
+            actions.append(.sendToOrca)
         }
 
         return actions

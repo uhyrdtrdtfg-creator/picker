@@ -10,6 +10,7 @@ private final class FirstMouseHostingView<Content: View>: NSHostingView<Content>
 @MainActor
 public final class PickerPopupPanel: NSPanel {
     public var onResign: (() -> Void)?
+    public var shouldHideOnResign: (() -> Bool)?
 
     private var hostingView: FirstMouseHostingView<PickerPopupView>?
     private var isPerformingResignHide = false
@@ -86,6 +87,7 @@ public final class PickerPopupPanel: NSPanel {
     }
 
     private func hideForResign() {
+        guard shouldHideOnResign?() ?? true else { return }
         guard !isPerformingResignHide else { return }
         isPerformingResignHide = true
         defer { isPerformingResignHide = false }

@@ -16,6 +16,13 @@ enum FocusedSelectionPollOutcome: Equatable, Sendable {
 
 protocol FocusedSelectionReading {
     func readFocusedSelection() -> FocusedSelectionPollOutcome
+    func readFrontmostDocumentPath() -> String?
+}
+
+extension FocusedSelectionReading {
+    func readFrontmostDocumentPath() -> String? {
+        nil
+    }
 }
 
 protocol FocusedTextEditing {
@@ -232,6 +239,39 @@ struct AccessibilityFocusedElementClient: FocusedSelectionReading, FocusedTextEd
                 processIdentifier: effectivePID
             )
         )
+    }
+
+    func readFrontmostDocumentPath() -> String? {
+        guard let frontPID = NSWorkspace.shared.frontmostApplication?.processIdentifier,
+              frontPID != 0 else {
+            return nil
+        }
+
+        let appElement = AXUIElementCreateApplication(frontPID)
+
+        if let focused = copyFocusedElement(frontmostPID: frontPID),
+           let docFromFocused = readDocumentPathFromAncestors(startingAt: focused, expectedPID: frontPID) {
+            return docFromFocused
+        }
+
+        for windowAttr in [kAXFocusedWindowAttribute as String, kAXMainWindowAttribute as String] {
+            var windowRef: CFTypeRef?
+            guard AXUIElementCopyAttributeValue(appElement, windowAttr as CFString, &windowRef) == .success,
+                  let windowElement = asAXUIElement(windowRef) else {
+                continue
+            }
+            if let path = extractLocalPathAttribute(from: windowElement) {
+                return path
+            }
+            var proxyRef: CFTypeRef?
+            if AXUIElementCopyAttributeValue(windowElement, kAXProxyAttribute as CFString, &proxyRef) == .success,
+               let proxyElement = asAXUIElement(proxyRef),
+               let proxyPath = extractLocalPathAttribute(from: proxyElement) {
+                return proxyPath
+            }
+        }
+
+        return nil
     }
 
     func captureFocusedTarget() -> AnyObject? {
@@ -818,6 +858,61 @@ struct AccessibilityFocusedElementClient: FocusedSelectionReading, FocusedTextEd
             width: standardized.width,
             height: standardized.height
         )
+    }
+
+    private func readDocumentPathFromAncestors(
+        startingAt element: AXUIElement,
+        expectedPID: pid_t
+    ) -> String? {
+        var current: AXUIElement? = element
+        var steps = 0
+        while let node = current, steps < 12 {
+            steps += 1
+            let nodePID = pid(of: node)
+            if nodePID != 0 && nodePID != expectedPID {
+                break
+            }
+            if let path = extractLocalPathAttribute(from: node) {
+                return path
+            }
+            if copyRole(of: node) == (kAXApplicationRole as String) {
+                break
+            }
+            var parentRef: CFTypeRef?
+            guard AXUIElementCopyAttributeValue(node, kAXParentAttribute as CFString, &parentRef) == .success,
+                  let parent = asAXUIElement(parentRef) else {
+                break
+            }
+            current = parent
+        }
+        return nil
+    }
+
+    private func extractLocalPathAttribute(from element: AXUIElement) -> String? {
+        for attr in [kAXDocumentAttribute as String, kAXURLAttribute as String, kAXFilenameAttribute as String] {
+            var valueRef: CFTypeRef?
+            guard AXUIElementCopyAttributeValue(element, attr as CFString, &valueRef) == .success,
+                  let valueRef else {
+                continue
+            }
+            if let stringVal = valueRef as? String {
+                let trimmed = stringVal.trimmingCharacters(in: .whitespacesAndNewlines)
+                if trimmed.lowercased().hasPrefix("file://"),
+                   let url = URL(string: trimmed),
+                   url.isFileURL {
+                    return url.path
+                }
+                if trimmed.hasPrefix("/") && !trimmed.hasPrefix("//") {
+                    return trimmed
+                }
+            } else if CFGetTypeID(valueRef) == CFURLGetTypeID() {
+                let url = unsafeBitCast(valueRef, to: CFURL.self) as URL
+                if url.isFileURL {
+                    return url.path
+                }
+            }
+        }
+        return nil
     }
 
     private func asAXUIElement(_ ref: CFTypeRef?) -> AXUIElement? {

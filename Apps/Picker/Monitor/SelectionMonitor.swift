@@ -33,6 +33,7 @@ final class SelectionMonitor {
     }
 
     private(set) var lastSelection: (text: String, bounds: CGRect, bundleID: String)?
+    private(set) var lastDocumentPath: String?
 
     private let userDefaults: UserDefaults
     private let selectionReader: FocusedSelectionReading
@@ -196,6 +197,7 @@ final class SelectionMonitor {
 
             lastObservedText = current.text
             lastObservedBundleID = current.bundleID
+            lastDocumentPath = selectionReader.readFrontmostDocumentPath()
             lastSelection = (current.text, current.bounds, current.bundleID)
             onSelection?(current.text, current.bounds, current.bundleID)
         }

@@ -24,6 +24,7 @@ public enum PopupBuiltInAction: String, CaseIterable, Sendable {
     case dictionary
     case reveal
     case spelling
+    case sendToOrca
 
     public init?(actionID: String) {
         switch actionID.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
@@ -43,6 +44,8 @@ public enum PopupBuiltInAction: String, CaseIterable, Sendable {
             self = .reveal
         case "spelling", "app.popclip.builtin.spelling":
             self = .spelling
+        case "sendtoorca", "send-to-orca", "send_to_orca", "orca", "app.picker.builtin.orca":
+            self = .sendToOrca
         default:
             return nil
         }
@@ -66,6 +69,8 @@ public enum PopupBuiltInAction: String, CaseIterable, Sendable {
             return "Reveal"
         case .spelling:
             return "Spelling"
+        case .sendToOrca:
+            return PickerOrcaStrings.popupButtonTitle
         }
     }
 
@@ -87,6 +92,8 @@ public enum PopupBuiltInAction: String, CaseIterable, Sendable {
             return "folder"
         case .spelling:
             return "textformat.abc.dottedunderline"
+        case .sendToOrca:
+            return "terminal"
         }
     }
 }
@@ -128,6 +135,9 @@ public struct PopupAction: Identifiable, Equatable, Hashable, Sendable {
     public static let dictionary = PopupAction(builtIn: .dictionary)
     public static let reveal = PopupAction(builtIn: .reveal)
     public static let spelling = PopupAction(builtIn: .spelling)
+    public static var sendToOrca: PopupAction {
+        PopupAction(builtIn: .sendToOrca)
+    }
 
     public static let builtInActions: [PopupAction] = PopupBuiltInAction.allCases.map {
         PopupAction(builtIn: $0)

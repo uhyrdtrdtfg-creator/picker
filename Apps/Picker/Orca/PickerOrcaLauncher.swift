@@ -49,14 +49,69 @@ public enum PickerOrcaStrings {
     }
 }
 
+public enum PickerOrcaWorktreeTarget: Equatable, Sendable {
+    case workspace(path: String)
+    case floatingTerminal
+
+    public var selectorArgument: String {
+        switch self {
+        case .workspace(let path):
+            return "path:\(path)"
+        case .floatingTerminal:
+            return PickerOrcaLauncher.floatingTerminalWorktreeSelector
+        }
+    }
+
+    public var directoryPath: String? {
+        switch self {
+        case .workspace(let path):
+            return path
+        case .floatingTerminal:
+            return nil
+        }
+    }
+}
+
+public typealias PickerOrcaSubcommandRunner = @Sendable (
+    _ executablePath: String,
+    _ arguments: [String],
+    _ currentDirectoryPath: String,
+    _ environment: [String: String]
+) -> Data?
+
 public struct PickerOrcaLaunchCommand: Equatable, Sendable {
     public let executablePath: String
     public let arguments: [String]
     public let currentDirectoryPath: String
     public let environment: [String: String]
     public let promptText: String
+    public let worktreeSelector: String
     public let worktreeDirectory: String?
     public let tempSelectionFilePath: String?
+
+    public func withFloatingTerminalFallback(homeDirectory: String) -> PickerOrcaLaunchCommand {
+        let fallbackCwd = PickerOrcaLauncher.resolveWorkingDirectory(
+            worktreeDirectory: nil,
+            homeDirectory: homeDirectory
+        )
+        var updatedArguments = arguments
+        if let flagIndex = updatedArguments.firstIndex(of: "--worktree"),
+           flagIndex + 1 < updatedArguments.count {
+            updatedArguments[flagIndex + 1] = PickerOrcaLauncher.floatingTerminalWorktreeSelector
+        } else {
+            updatedArguments.append(contentsOf: ["--worktree", PickerOrcaLauncher.floatingTerminalWorktreeSelector])
+        }
+        return PickerOrcaLaunchCommand(
+            executablePath: executablePath,
+            arguments: updatedArguments,
+            currentDirectoryPath: fallbackCwd,
+            environment: environment,
+            promptText: promptText,
+            worktreeSelector: PickerOrcaLauncher.floatingTerminalWorktreeSelector,
+            worktreeDirectory: nil,
+            tempSelectionFilePath: tempSelectionFilePath
+        )
+    }
 }
 
 public enum PickerOrcaLaunchOutcome: Equatable, Sendable {
@@ -171,6 +226,8 @@ public enum PickerOrcaLauncher {
     public static let maxInlineSelectionCharacters = 8000
     public static let maxNoteCharacters = 2000
     public static let envExecutablePath = "/usr/bin/env"
+    public static let floatingTerminalWorktreeSelector = "global-floating-terminal"
+    private static let subcommandTimeoutSeconds: TimeInterval = 3.0
 
     private static let allowedEnvironmentKeys: Set<String> = [
         "PATH",
@@ -401,15 +458,156 @@ public enum PickerOrcaLauncher {
         return (prompt, tempFileURL.path)
     }
 
-    public static func resolveWorktreeDirectory(
+    public static func resolveWorktreeTarget(
         frontDocumentPath: String?,
-        selection: String,
+        executablePath: String,
+        environment: [String: String],
+        homeDirectory: String = FileManager.default.homeDirectoryForCurrentUser.path,
+        subcommandRunner: PickerOrcaSubcommandRunner? = nil,
+        fileManager: FileManager = .default
+    ) -> PickerOrcaWorktreeTarget {
+        let lookupCwd = resolveWorkingDirectory(worktreeDirectory: nil, homeDirectory: homeDirectory)
+        let runner = subcommandRunner ?? defaultSubcommandRunner
+
+        if let docDir = resolveDocumentDirectory(from: frontDocumentPath, fileManager: fileManager),
+           let listData = runner(executablePath, ["worktree", "list", "--json"], lookupCwd, environment),
+           let matchedRoot = matchingWorkspaceRoot(
+               forDirectory: docDir,
+               fromWorktreeListJSON: listData,
+               fileManager: fileManager
+           ) {
+            return .workspace(path: matchedRoot)
+        }
+
+        if let psData = runner(executablePath, ["worktree", "ps", "--json"], lookupCwd, environment),
+           let recentWorkspace = mostRecentRunningWorkspacePath(
+               fromWorktreePsJSON: psData,
+               fileManager: fileManager
+           ) {
+            return .workspace(path: recentWorkspace)
+        }
+
+        return .floatingTerminal
+    }
+
+    public static func matchingWorkspaceRoot(
+        forDirectory directory: String,
+        fromWorktreeListJSON data: Data,
         fileManager: FileManager = .default
     ) -> String? {
-        if let docDir = resolveDocumentDirectory(from: frontDocumentPath, fileManager: fileManager) {
-            return docDir
+        guard let worktrees = extractWorktreeEntries(from: data) else {
+            return nil
         }
-        return resolveSingleSelectionDirectory(from: selection, fileManager: fileManager)
+
+        let candidateStd = standardizeDirectoryPath(directory)
+        let candidateCanon = canonicalComparisonPath(candidateStd)
+        guard candidateStd != "/", candidateCanon != "/" else {
+            return nil
+        }
+
+        var bestRoot: String?
+        var bestDepth = -1
+
+        for entry in worktrees {
+            guard isLocalHostEntry(entry),
+                  (entry["isArchived"] as? Bool) != true,
+                  (entry["isBare"] as? Bool) != true,
+                  let rawPath = entry["path"] as? String else {
+                continue
+            }
+
+            let wsStd = standardizeDirectoryPath(rawPath)
+            guard isExistingDirectory(atPath: wsStd, fileManager: fileManager) else {
+                continue
+            }
+            let wsCanon = canonicalComparisonPath(wsStd)
+
+            if pathContains(parent: wsCanon, child: candidateCanon)
+                || pathContains(parent: wsStd, child: candidateStd) {
+                let depth = wsCanon.count
+                if depth > bestDepth {
+                    bestDepth = depth
+                    bestRoot = wsStd
+                }
+            }
+        }
+
+        return bestRoot
+    }
+
+    public static func mostRecentRunningWorkspacePath(
+        fromWorktreePsJSON data: Data,
+        fileManager: FileManager = .default
+    ) -> String? {
+        guard let worktrees = extractWorktreeEntries(from: data) else {
+            return nil
+        }
+
+        struct ScoredCandidate {
+            let path: String
+            let primaryActivity: Double
+            let lastOutput: Double
+            let isActiveRank: Int
+            let sortOrder: Double
+            let index: Int
+        }
+
+        var best: ScoredCandidate?
+
+        for (index, entry) in worktrees.enumerated() {
+            guard isLocalHostEntry(entry),
+                  (entry["isArchived"] as? Bool) != true,
+                  (entry["removing"] as? Bool) != true,
+                  isRunningWorktreePsEntry(entry),
+                  let rawPath = entry["path"] as? String else {
+                continue
+            }
+
+            let wsStd = standardizeDirectoryPath(rawPath)
+            guard isExistingDirectory(atPath: wsStd, fileManager: fileManager) else {
+                continue
+            }
+
+            let lastActivity = numericDouble(entry["lastActivityAt"])
+            let lastOutput = numericDouble(entry["lastOutputAt"])
+            let primaryActivity = lastActivity ?? lastOutput ?? -.infinity
+            let resolvedOutput = lastOutput ?? -.infinity
+            let isActiveRank = ((entry["isActive"] as? Bool) == true) ? 1 : 0
+            let sortOrder = numericDouble(entry["sortOrder"]) ?? -.infinity
+
+            let candidate = ScoredCandidate(
+                path: wsStd,
+                primaryActivity: primaryActivity,
+                lastOutput: resolvedOutput,
+                isActiveRank: isActiveRank,
+                sortOrder: sortOrder,
+                index: index
+            )
+
+            if let currentBest = best {
+                let candidateTuple = (
+                    candidate.primaryActivity,
+                    candidate.lastOutput,
+                    candidate.isActiveRank,
+                    candidate.sortOrder,
+                    -candidate.index
+                )
+                let bestTuple = (
+                    currentBest.primaryActivity,
+                    currentBest.lastOutput,
+                    currentBest.isActiveRank,
+                    currentBest.sortOrder,
+                    -currentBest.index
+                )
+                if candidateTuple > bestTuple {
+                    best = candidate
+                }
+            } else {
+                best = candidate
+            }
+        }
+
+        return best?.path
     }
 
     public static func resolveWorkingDirectory(
@@ -437,6 +635,7 @@ public enum PickerOrcaLauncher {
         homeDirectory: String = FileManager.default.homeDirectoryForCurrentUser.path,
         includeLoginShellPATH: Bool = true,
         loginShellPATHProvider: (() -> String?)? = nil,
+        subcommandRunner: PickerOrcaSubcommandRunner? = nil,
         temporaryDirectory: String = NSTemporaryDirectory(),
         uuid: UUID = UUID(),
         fileManager: FileManager = .default
@@ -470,30 +669,31 @@ public enum PickerOrcaLauncher {
             return .rejected(.failed(line))
         }
 
-        let worktreeDir = resolveWorktreeDirectory(
-            frontDocumentPath: frontDocumentPath,
-            selection: selection,
-            fileManager: fileManager
-        )
-        let cwd = resolveWorkingDirectory(worktreeDirectory: worktreeDir, homeDirectory: homeDirectory)
         let cleanEnvironment = sanitizedEnvironment(
             from: environment,
             executablePath: executablePath,
             homeDirectory: homeDirectory
         )
+        let target = resolveWorktreeTarget(
+            frontDocumentPath: frontDocumentPath,
+            executablePath: executablePath,
+            environment: cleanEnvironment,
+            homeDirectory: homeDirectory,
+            subcommandRunner: subcommandRunner,
+            fileManager: fileManager
+        )
+        let cwd = resolveWorkingDirectory(worktreeDirectory: target.directoryPath, homeDirectory: homeDirectory)
 
-        var arguments: [String] = [
+        let arguments: [String] = [
             "agent",
             "launch",
             "--agent", agent.cliID,
             "--surface", "terminal",
             "--focus",
             "--json",
-            "--prompt", promptResult.prompt
+            "--prompt", promptResult.prompt,
+            "--worktree", target.selectorArgument
         ]
-        if let worktreeDir {
-            arguments.append(contentsOf: ["--worktree", "path:\(worktreeDir)"])
-        }
 
         return .ready(
             PickerOrcaLaunchCommand(
@@ -502,7 +702,8 @@ public enum PickerOrcaLauncher {
                 currentDirectoryPath: cwd,
                 environment: cleanEnvironment,
                 promptText: promptResult.prompt,
-                worktreeDirectory: worktreeDir,
+                worktreeSelector: target.selectorArgument,
+                worktreeDirectory: target.directoryPath,
                 tempSelectionFilePath: promptResult.tempFilePath
             )
         )
@@ -518,35 +719,51 @@ public enum PickerOrcaLauncher {
         homeDirectory: String = FileManager.default.homeDirectoryForCurrentUser.path,
         includeLoginShellPATH: Bool = true,
         loginShellPATHProvider: (() -> String?)? = nil,
+        subcommandRunner: PickerOrcaSubcommandRunner? = nil,
         temporaryDirectory: String = NSTemporaryDirectory(),
         fileManager: FileManager = .default,
         completion: @escaping @MainActor (PickerOrcaLaunchOutcome) -> Void
     ) {
-        let prepared = prepareCommand(
-            agent: agent,
-            selection: selection,
-            note: note,
-            frontDocumentPath: frontDocumentPath,
-            candidatePaths: candidatePaths,
-            environment: environment,
-            homeDirectory: homeDirectory,
-            includeLoginShellPATH: includeLoginShellPATH,
-            loginShellPATHProvider: loginShellPATHProvider,
-            temporaryDirectory: temporaryDirectory,
-            fileManager: fileManager
-        )
-
-        switch prepared {
-        case .rejected(let failureOutcome):
+        guard canSend(selection: selection) else {
             Task { @MainActor in
-                completion(failureOutcome)
+                completion(.emptySelection)
             }
-        case .ready(let command):
-            DispatchQueue.global(qos: .userInitiated).async {
-                let outcome = execute(command: command)
-                Task { @MainActor in
-                    completion(outcome)
+            return
+        }
+
+        DispatchQueue.global(qos: .userInitiated).async {
+            let prepared = prepareCommand(
+                agent: agent,
+                selection: selection,
+                note: note,
+                frontDocumentPath: frontDocumentPath,
+                candidatePaths: candidatePaths,
+                environment: environment,
+                homeDirectory: homeDirectory,
+                includeLoginShellPATH: includeLoginShellPATH,
+                loginShellPATHProvider: loginShellPATHProvider,
+                subcommandRunner: subcommandRunner,
+                temporaryDirectory: temporaryDirectory,
+                fileManager: fileManager
+            )
+
+            let outcome: PickerOrcaLaunchOutcome
+            switch prepared {
+            case .rejected(let failureOutcome):
+                outcome = failureOutcome
+            case .ready(let command):
+                let firstOutcome = execute(command: command)
+                if case .failed(let errorMessage) = firstOutcome,
+                   command.worktreeDirectory != nil,
+                   isWorkspaceSelectorNotFoundMessage(errorMessage) {
+                    outcome = execute(command: command.withFloatingTerminalFallback(homeDirectory: homeDirectory))
+                } else {
+                    outcome = firstOutcome
                 }
+            }
+
+            Task { @MainActor in
+                completion(outcome)
             }
         }
     }
@@ -701,6 +918,168 @@ public enum PickerOrcaLauncher {
         return nil
     }
 
+    private static let defaultSubcommandRunner: PickerOrcaSubcommandRunner = { executablePath, arguments, currentDirectoryPath, environment in
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: executablePath)
+        process.arguments = arguments
+        process.currentDirectoryURL = URL(fileURLWithPath: currentDirectoryPath, isDirectory: true)
+        process.environment = environment
+        process.standardInput = FileHandle.nullDevice
+
+        let stdoutPipe = Pipe()
+        process.standardOutput = stdoutPipe
+        process.standardError = FileHandle.nullDevice
+
+        let finished = DispatchSemaphore(value: 0)
+        process.terminationHandler = { _ in
+            finished.signal()
+        }
+
+        do {
+            try process.run()
+        } catch {
+            return nil
+        }
+
+        final class DataBox: @unchecked Sendable {
+            var data = Data()
+        }
+        let outputBox = DataBox()
+        let readGroup = DispatchGroup()
+        readGroup.enter()
+        DispatchQueue.global(qos: .utility).async {
+            outputBox.data = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
+            readGroup.leave()
+        }
+
+        if finished.wait(timeout: .now() + subcommandTimeoutSeconds) == .timedOut {
+            process.terminate()
+            _ = readGroup.wait(timeout: .now() + 0.5)
+            return nil
+        }
+
+        readGroup.wait()
+        guard process.terminationStatus == 0, !outputBox.data.isEmpty else {
+            return nil
+        }
+        return outputBox.data
+    }
+
+    private static func extractWorktreeEntries(from data: Data) -> [[String: Any]]? {
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return nil
+        }
+        if let ok = json["ok"] as? Bool, !ok {
+            return nil
+        }
+        if let result = json["result"] as? [String: Any],
+           let worktrees = result["worktrees"] as? [[String: Any]] {
+            return worktrees
+        }
+        if let worktrees = json["worktrees"] as? [[String: Any]] {
+            return worktrees
+        }
+        return nil
+    }
+
+    private static func isLocalHostEntry(_ entry: [String: Any]) -> Bool {
+        guard let rawHost = entry["hostId"] as? String else {
+            return true
+        }
+        let trimmed = rawHost.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty || trimmed == "local"
+    }
+
+    private static func isRunningWorktreePsEntry(_ entry: [String: Any]) -> Bool {
+        let status = (entry["status"] as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        if let status,
+           status == "inactive" || status == "sleeping" || status == "stopped" || status == "archived" {
+            return false
+        }
+
+        if let liveCount = numericInt(entry["liveTerminalCount"]), liveCount > 0 {
+            return true
+        }
+        if (entry["hasAttachedPty"] as? Bool) == true {
+            return true
+        }
+        if (entry["terminalVerdict"] as? String)?.lowercased() == "live" {
+            return true
+        }
+        if let status,
+           status == "working"
+            || status == "permission"
+            || status == "active"
+            || status == "running"
+            || status == "monitoring"
+            || status == "done" {
+            return true
+        }
+        return false
+    }
+
+    private static func numericInt(_ raw: Any?) -> Int? {
+        if let intVal = raw as? Int {
+            return intVal
+        }
+        if let number = raw as? NSNumber {
+            return number.intValue
+        }
+        return nil
+    }
+
+    private static func numericDouble(_ raw: Any?) -> Double? {
+        if let doubleVal = raw as? Double, doubleVal.isFinite {
+            return doubleVal
+        }
+        if let intVal = raw as? Int {
+            return Double(intVal)
+        }
+        if let number = raw as? NSNumber {
+            let value = number.doubleValue
+            return value.isFinite ? value : nil
+        }
+        return nil
+    }
+
+    private static func standardizeDirectoryPath(_ rawPath: String) -> String {
+        let trimmed = rawPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.hasPrefix("/"), !trimmed.hasPrefix("//") else {
+            return ""
+        }
+        return URL(fileURLWithPath: trimmed).standardizedFileURL.path
+    }
+
+    private static func canonicalComparisonPath(_ path: String) -> String {
+        guard path.hasPrefix("/"), path != "/" else {
+            return path
+        }
+        return URL(fileURLWithPath: path).resolvingSymlinksInPath().standardizedFileURL.path
+    }
+
+    private static func pathContains(parent: String, child: String) -> Bool {
+        guard parent.hasPrefix("/"), parent != "/", child.hasPrefix("/") else {
+            return false
+        }
+        return child == parent || child.hasPrefix(parent + "/")
+    }
+
+    private static func isExistingDirectory(atPath path: String, fileManager: FileManager) -> Bool {
+        guard path.hasPrefix("/"), path != "/" else {
+            return false
+        }
+        var isDirectory: ObjCBool = false
+        return fileManager.fileExists(atPath: path, isDirectory: &isDirectory) && isDirectory.boolValue
+    }
+
+    private static func isWorkspaceSelectorNotFoundMessage(_ message: String) -> Bool {
+        let lowered = message.lowercased()
+        return lowered.contains("selector_not_found")
+            || lowered.contains("no orca workspace")
+    }
+
     private static func resolveDocumentDirectory(
         from rawDocument: String?,
         fileManager: FileManager
@@ -724,43 +1103,18 @@ public enum PickerOrcaLauncher {
         guard standardized.hasPrefix("/"), standardized != "/" else { return nil }
 
         var isDirectory: ObjCBool = false
-        guard fileManager.fileExists(atPath: standardized, isDirectory: &isDirectory) else {
-            return nil
-        }
-
-        if isDirectory.boolValue {
-            return standardized
+        if fileManager.fileExists(atPath: standardized, isDirectory: &isDirectory) {
+            if isDirectory.boolValue {
+                return standardized
+            }
         }
 
         let parentDir = URL(fileURLWithPath: standardized).deletingLastPathComponent().standardizedFileURL.path
         guard parentDir.hasPrefix("/"), parentDir != "/" else { return nil }
 
-        if let gitRoot = findEnclosingGitRoot(startingAt: parentDir, fileManager: fileManager) {
-            return gitRoot
-        }
-
         var parentIsDir: ObjCBool = false
         if fileManager.fileExists(atPath: parentDir, isDirectory: &parentIsDir), parentIsDir.boolValue {
             return parentDir
-        }
-        return nil
-    }
-
-    private static func findEnclosingGitRoot(
-        startingAt directory: String,
-        fileManager: FileManager
-    ) -> String? {
-        var current = URL(fileURLWithPath: directory, isDirectory: true).standardizedFileURL.path
-        while current.hasPrefix("/") && current != "/" {
-            let gitMarker = (current as NSString).appendingPathComponent(".git")
-            if fileManager.fileExists(atPath: gitMarker) {
-                return current
-            }
-            let next = URL(fileURLWithPath: current).deletingLastPathComponent().standardizedFileURL.path
-            if next == current {
-                break
-            }
-            current = next
         }
         return nil
     }

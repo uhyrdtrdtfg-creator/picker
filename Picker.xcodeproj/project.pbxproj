@@ -11,6 +11,7 @@
 		20672750563F7704A2E12968 /* AccessibilityFocusedElementClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1A317369207870B922BD86F /* AccessibilityFocusedElementClient.swift */; };
 		2EC5EC282B4500AA38A972EA /* PickerOrcaLauncher.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD2FAEE07259EAD4B6C8CB3A /* PickerOrcaLauncher.swift */; };
 		3F414DB0B4CE7C8F1E7D2A32 /* PickerOrcaPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 700095651DC9264411AE5CED /* PickerOrcaPanel.swift */; };
+		9A8B7C6D5E4F3A2B1C0D9E8F /* PickerOrcaPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 700095651DC9264411AE5CED /* PickerOrcaPanel.swift */; };
 		4B995C39121C61EAB1CC9079 /* PickerOrcaLauncherTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D498D56E24A6BDA0BAB050A /* PickerOrcaLauncherTests.swift */; };
 		575B0A62449B548605138C53 /* AccessibilityFocusedElementClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1A317369207870B922BD86F /* AccessibilityFocusedElementClient.swift */; };
 		7110CA1505A6CD0CD115D917 /* ElectronAccessibilitySelectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7E8A58FFC6F68EF4D178AC9 /* ElectronAccessibilitySelectionTests.swift */; };
@@ -219,6 +220,7 @@
 				575B0A62449B548605138C53 /* AccessibilityFocusedElementClient.swift in Sources */,
 				7110CA1505A6CD0CD115D917 /* ElectronAccessibilitySelectionTests.swift in Sources */,
 				CFBBE52C0E16A67FEA89506B /* PickerOrcaLauncher.swift in Sources */,
+				9A8B7C6D5E4F3A2B1C0D9E8F /* PickerOrcaPanel.swift in Sources */,
 				4B995C39121C61EAB1CC9079 /* PickerOrcaLauncherTests.swift in Sources */,
 				8FB375FBA94F7A6A8FFF9A2C /* SelectionMonitor.swift in Sources */,
 			);
@@ -296,7 +298,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "-";
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 8;
+				CURRENT_PROJECT_VERSION = 9;
 				ENABLE_APP_SANDBOX = NO;
 				ENABLE_HARDENED_RUNTIME = NO;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -306,7 +308,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 1.0.8;
+				MARKETING_VERSION = 1.0.9;
 				PRODUCT_BUNDLE_IDENTIFIER = app.picker.mac;
 				PRODUCT_NAME = Picker;
 				SDKROOT = macosx;
@@ -416,7 +418,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "-";
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 8;
+				CURRENT_PROJECT_VERSION = 9;
 				ENABLE_APP_SANDBOX = NO;
 				ENABLE_HARDENED_RUNTIME = NO;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -426,7 +428,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 1.0.8;
+				MARKETING_VERSION = 1.0.9;
 				PRODUCT_BUNDLE_IDENTIFIER = app.picker.mac;
 				PRODUCT_NAME = Picker;
 				SDKROOT = macosx;

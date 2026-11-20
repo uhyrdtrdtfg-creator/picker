@@ -30,10 +30,29 @@ targets:
         CODE_SIGN_IDENTITY: "-"
         ENABLE_APP_SANDBOX: NO
         ENABLE_HARDENED_RUNTIME: NO
+  PickerTests:
+    type: bundle.unit-test
+    platform: macOS
+    deploymentTarget: "13.0"
+    sources:
+      - Apps/PickerTests
+      - Apps/Picker/Monitor/AccessibilityFocusedElementClient.swift
+      - Apps/Picker/Monitor/SelectionMonitor.swift
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: app.picker.mac.tests
+        GENERATE_INFOPLIST_FILE: YES
+        SWIFT_VERSION: "5.0"
+        CODE_SIGN_IDENTITY: "-"
 schemes:
   Picker:
     build:
       targets:
         Picker: all
+        PickerTests: [test]
     run:
       config: Debug
+    test:
+      config: Debug
+      targets:
+        - PickerTests

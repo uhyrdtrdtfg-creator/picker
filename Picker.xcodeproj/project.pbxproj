@@ -11,7 +11,10 @@
 		20672750563F7704A2E12968 /* AccessibilityFocusedElementClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1A317369207870B922BD86F /* AccessibilityFocusedElementClient.swift */; };
 		2EC5EC282B4500AA38A972EA /* PickerOrcaLauncher.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD2FAEE07259EAD4B6C8CB3A /* PickerOrcaLauncher.swift */; };
 		3F414DB0B4CE7C8F1E7D2A32 /* PickerOrcaPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 700095651DC9264411AE5CED /* PickerOrcaPanel.swift */; };
+		575B0A62449B548605138C53 /* AccessibilityFocusedElementClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1A317369207870B922BD86F /* AccessibilityFocusedElementClient.swift */; };
+		7110CA1505A6CD0CD115D917 /* ElectronAccessibilitySelectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7E8A58FFC6F68EF4D178AC9 /* ElectronAccessibilitySelectionTests.swift */; };
 		73C9A3360915B381ABEE1E55 /* PickerMonitorBootstrap.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2768B881833448DF49274D29 /* PickerMonitorBootstrap.swift */; };
+		8FB375FBA94F7A6A8FFF9A2C /* SelectionMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2AA7C59EF3AA07BEE0FC0F81 /* SelectionMonitor.swift */; };
 		A5B0B0C930F2C28D9048C70A /* PickerActionRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE9CFEFD284AE4D31C241F93 /* PickerActionRunner.swift */; };
 		AA3C651E565B79715E2F55D8 /* PickerPopupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9D8FB85AAF2DE058E45C5D3 /* PickerPopupView.swift */; };
 		AC1CEAA1A5374133F1B528AA /* PickerSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D6B5F1A0958297455D0C8399 /* PickerSettingsView.swift */; };
@@ -30,6 +33,7 @@
 		7431E375F64B5B3182481181 /* PopupModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PopupModels.swift; sourceTree = "<group>"; };
 		A1D39451CDC53A6A5DFC63CD /* AccessibilityPermission.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccessibilityPermission.swift; sourceTree = "<group>"; };
 		A7BC51E840B8DDF8850E4FD1 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		B94FEC0205759A01945BDB6A /* PickerTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = PickerTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		B9D8FB85AAF2DE058E45C5D3 /* PickerPopupView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PickerPopupView.swift; sourceTree = "<group>"; };
 		D2157B972B83B180BC3C4486 /* PickerPopupPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PickerPopupPanel.swift; sourceTree = "<group>"; };
 		D6B5F1A0958297455D0C8399 /* PickerSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PickerSettingsView.swift; sourceTree = "<group>"; };
@@ -37,6 +41,7 @@
 		E1A317369207870B922BD86F /* AccessibilityFocusedElementClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccessibilityFocusedElementClient.swift; sourceTree = "<group>"; };
 		ECED2B0C9FFF371F2D2830E8 /* PickerApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PickerApp.swift; sourceTree = "<group>"; };
 		EE9CFEFD284AE4D31C241F93 /* PickerActionRunner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PickerActionRunner.swift; sourceTree = "<group>"; };
+		F7E8A58FFC6F68EF4D178AC9 /* ElectronAccessibilitySelectionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ElectronAccessibilitySelectionTests.swift; sourceTree = "<group>"; };
 		F9F7E13A1C00DB6BAC330321 /* PickerPopupController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PickerPopupController.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -53,8 +58,18 @@
 			isa = PBXGroup;
 			children = (
 				2A2405BBE80E0DD46C608462 /* Picker.app */,
+				B94FEC0205759A01945BDB6A /* PickerTests.xctest */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		A6D6B141C3EF6485151CC2CF /* PickerTests */ = {
+			isa = PBXGroup;
+			children = (
+				F7E8A58FFC6F68EF4D178AC9 /* ElectronAccessibilitySelectionTests.swift */,
+			);
+			name = PickerTests;
+			path = Apps/PickerTests;
 			sourceTree = "<group>";
 		};
 		B7C19404697C4BC1C999CD4B /* Picker */ = {
@@ -76,6 +91,7 @@
 			isa = PBXGroup;
 			children = (
 				B7C19404697C4BC1C999CD4B /* Picker */,
+				A6D6B141C3EF6485151CC2CF /* PickerTests */,
 				573771B5854CB1CB1AAFB57E /* Products */,
 			);
 			sourceTree = "<group>";
@@ -123,6 +139,23 @@
 			productReference = 2A2405BBE80E0DD46C608462 /* Picker.app */;
 			productType = "com.apple.product-type.application";
 		};
+		C9756B0BE77DE952F9D6EB4E /* PickerTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 2C9D1CC6A1B3C3FAFE1447A8 /* Build configuration list for PBXNativeTarget "PickerTests" */;
+			buildPhases = (
+				BAE733A323EC24C92888CA91 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = PickerTests;
+			packageProductDependencies = (
+			);
+			productName = PickerTests;
+			productReference = B94FEC0205759A01945BDB6A /* PickerTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -149,6 +182,7 @@
 			projectRoot = "";
 			targets = (
 				513CE4A6CAAAF6C63889696E /* Picker */,
+				C9756B0BE77DE952F9D6EB4E /* PickerTests */,
 			);
 		};
 /* End PBXProject section */
@@ -171,6 +205,16 @@
 				AC1CEAA1A5374133F1B528AA /* PickerSettingsView.swift in Sources */,
 				D077430AC9B26B32BC92BAD0 /* PopupModels.swift in Sources */,
 				AD45B49A615E899397E956DD /* SelectionMonitor.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		BAE733A323EC24C92888CA91 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				575B0A62449B548605138C53 /* AccessibilityFocusedElementClient.swift in Sources */,
+				7110CA1505A6CD0CD115D917 /* ElectronAccessibilitySelectionTests.swift in Sources */,
+				8FB375FBA94F7A6A8FFF9A2C /* SelectionMonitor.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -320,6 +364,44 @@
 			};
 			name = Release;
 		};
+		4F22983E69A429234B88C4E6 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_IDENTITY = "-";
+				COMBINE_HIDPI_IMAGES = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				PRODUCT_BUNDLE_IDENTIFIER = app.picker.mac.tests;
+				SDKROOT = macosx;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		BDA17DF4F41BDC51D0588C4B /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_IDENTITY = "-";
+				COMBINE_HIDPI_IMAGES = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				PRODUCT_BUNDLE_IDENTIFIER = app.picker.mac.tests;
+				SDKROOT = macosx;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
 		F04563B0FBB106C1D630606B /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -347,6 +429,15 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		2C9D1CC6A1B3C3FAFE1447A8 /* Build configuration list for PBXNativeTarget "PickerTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				4F22983E69A429234B88C4E6 /* Debug */,
+				BDA17DF4F41BDC51D0588C4B /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
 		88735B78779C2A4A7090423B /* Build configuration list for PBXNativeTarget "Picker" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (

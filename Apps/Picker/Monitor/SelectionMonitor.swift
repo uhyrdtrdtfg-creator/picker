@@ -41,6 +41,7 @@ final class SelectionMonitor {
     private let ownBundleID: String
     private let ownProcessIdentifier: pid_t
     private let notificationCenter: NotificationCenter
+    private let workspaceNotificationCenter: NotificationCenter
 
     private var storedAppearAutomatically: Bool
     private var trackedNamespacedAppearValue: Bool?
@@ -68,6 +69,7 @@ final class SelectionMonitor {
         ownBundleID: String? = Bundle.main.bundleIdentifier,
         ownProcessIdentifier: pid_t = ProcessInfo.processInfo.processIdentifier,
         notificationCenter: NotificationCenter = .default,
+        workspaceNotificationCenter: NotificationCenter = NSWorkspace.shared.notificationCenter,
         onSelection: ((String, CGRect, String) -> Void)? = nil,
         onPermissionMissing: (() -> Void)? = nil
     ) {
@@ -77,6 +79,7 @@ final class SelectionMonitor {
         self.ownBundleID = (ownBundleID?.isEmpty == false ? ownBundleID! : Self.fallbackOwnBundleID)
         self.ownProcessIdentifier = ownProcessIdentifier
         self.notificationCenter = notificationCenter
+        self.workspaceNotificationCenter = workspaceNotificationCenter
         self.onSelection = onSelection
         self.onPermissionMissing = onPermissionMissing
 
@@ -107,13 +110,19 @@ final class SelectionMonitor {
             }
         }
 
-        self.workspaceActivateObserver = NSWorkspace.shared.notificationCenter.addObserver(
+        self.workspaceActivateObserver = workspaceNotificationCenter.addObserver(
             forName: NSWorkspace.didActivateApplicationNotification,
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            guard let self, self.isStarted, self.storedAppearAutomatically, !self.isPolling else { return }
-            self.updatePollingState()
+            guard let self, self.isStarted, self.storedAppearAutomatically else { return }
+            if self.isPolling {
+                if self.isAccessibilityTrusted() {
+                    self.selectionReader.prepareFrontmostApplication()
+                }
+            } else {
+                self.updatePollingState()
+            }
         }
 
         self.appBecomeActiveObserver = notificationCenter.addObserver(
@@ -136,7 +145,7 @@ final class SelectionMonitor {
             DistributedNotificationCenter.default().removeObserver(accessibilityObserver)
         }
         if let workspaceActivateObserver {
-            NSWorkspace.shared.notificationCenter.removeObserver(workspaceActivateObserver)
+            workspaceNotificationCenter.removeObserver(workspaceActivateObserver)
         }
         if let appBecomeActiveObserver {
             notificationCenter.removeObserver(appBecomeActiveObserver)
@@ -318,6 +327,7 @@ final class SelectionMonitor {
             )
         }
         installMouseSelectionMonitors()
+        selectionReader.prepareFrontmostApplication()
         let timer = Timer(timeInterval: Self.pollInterval, repeats: true) { [weak self] _ in
             guard (NSEvent.pressedMouseButtons & 1) == 0 else { return }
             self?.pollOnce()
@@ -372,14 +382,33 @@ final class SelectionMonitor {
                     dragDistance = 0
                 }
                 self.mouseDownScreenLocation = nil
+                self.handleMouseSelectionRelease(clickCount: clickCount, dragDistance: dragDistance)
+            }
+        }
+    }
 
-                if clickCount >= 2 || dragDistance >= 3 {
-                    self.lastObservedText = ""
-                }
+    func handleMouseSelectionRelease(
+        clickCount: Int,
+        dragDistance: CGFloat,
+        initialDelay: TimeInterval = 0.06,
+        retryDelay: TimeInterval = 0.18,
+        isLeftMousePressed: @escaping () -> Bool = { (NSEvent.pressedMouseButtons & 1) != 0 }
+    ) {
+        guard isStarted, isPolling else { return }
+        let isSelectionGesture = clickCount >= 2 || dragDistance >= 3
+        if isSelectionGesture {
+            lastObservedText = ""
+        }
 
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.06) { [weak self] in
+        DispatchQueue.main.asyncAfter(deadline: .now() + initialDelay) { [weak self] in
+            guard let self, self.isStarted, self.isPolling else { return }
+            guard !isLeftMousePressed() else { return }
+            self.pollOnce()
+
+            if isSelectionGesture && self.lastObservedText.isEmpty {
+                DispatchQueue.main.asyncAfter(deadline: .now() + retryDelay) { [weak self] in
                     guard let self, self.isStarted, self.isPolling else { return }
-                    guard (NSEvent.pressedMouseButtons & 1) == 0 else { return }
+                    guard !isLeftMousePressed() else { return }
                     self.pollOnce()
                 }
             }

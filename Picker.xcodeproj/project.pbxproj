@@ -12,7 +12,10 @@
 		2EC5EC282B4500AA38A972EA /* PickerOrcaLauncher.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD2FAEE07259EAD4B6C8CB3A /* PickerOrcaLauncher.swift */; };
 		3F414DB0B4CE7C8F1E7D2A32 /* PickerOrcaPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 700095651DC9264411AE5CED /* PickerOrcaPanel.swift */; };
 		4B995C39121C61EAB1CC9079 /* PickerOrcaLauncherTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D498D56E24A6BDA0BAB050A /* PickerOrcaLauncherTests.swift */; };
+		575B0A62449B548605138C53 /* AccessibilityFocusedElementClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1A317369207870B922BD86F /* AccessibilityFocusedElementClient.swift */; };
+		7110CA1505A6CD0CD115D917 /* ElectronAccessibilitySelectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7E8A58FFC6F68EF4D178AC9 /* ElectronAccessibilitySelectionTests.swift */; };
 		73C9A3360915B381ABEE1E55 /* PickerMonitorBootstrap.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2768B881833448DF49274D29 /* PickerMonitorBootstrap.swift */; };
+		8FB375FBA94F7A6A8FFF9A2C /* SelectionMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2AA7C59EF3AA07BEE0FC0F81 /* SelectionMonitor.swift */; };
 		A5B0B0C930F2C28D9048C70A /* PickerActionRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE9CFEFD284AE4D31C241F93 /* PickerActionRunner.swift */; };
 		AA3C651E565B79715E2F55D8 /* PickerPopupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9D8FB85AAF2DE058E45C5D3 /* PickerPopupView.swift */; };
 		AC1CEAA1A5374133F1B528AA /* PickerSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D6B5F1A0958297455D0C8399 /* PickerSettingsView.swift */; };
@@ -41,6 +44,7 @@
 		E1A317369207870B922BD86F /* AccessibilityFocusedElementClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccessibilityFocusedElementClient.swift; sourceTree = "<group>"; };
 		ECED2B0C9FFF371F2D2830E8 /* PickerApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PickerApp.swift; sourceTree = "<group>"; };
 		EE9CFEFD284AE4D31C241F93 /* PickerActionRunner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PickerActionRunner.swift; sourceTree = "<group>"; };
+		F7E8A58FFC6F68EF4D178AC9 /* ElectronAccessibilitySelectionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ElectronAccessibilitySelectionTests.swift; sourceTree = "<group>"; };
 		F9F7E13A1C00DB6BAC330321 /* PickerPopupController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PickerPopupController.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -65,6 +69,7 @@
 		A6D6B141C3EF6485151CC2CF /* PickerTests */ = {
 			isa = PBXGroup;
 			children = (
+				F7E8A58FFC6F68EF4D178AC9 /* ElectronAccessibilitySelectionTests.swift */,
 				8D498D56E24A6BDA0BAB050A /* PickerOrcaLauncherTests.swift */,
 			);
 			name = PickerTests;
@@ -211,8 +216,11 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				575B0A62449B548605138C53 /* AccessibilityFocusedElementClient.swift in Sources */,
+				7110CA1505A6CD0CD115D917 /* ElectronAccessibilitySelectionTests.swift in Sources */,
 				CFBBE52C0E16A67FEA89506B /* PickerOrcaLauncher.swift in Sources */,
 				4B995C39121C61EAB1CC9079 /* PickerOrcaLauncherTests.swift in Sources */,
+				8FB375FBA94F7A6A8FFF9A2C /* SelectionMonitor.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -288,7 +296,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "-";
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 7;
+				CURRENT_PROJECT_VERSION = 8;
 				ENABLE_APP_SANDBOX = NO;
 				ENABLE_HARDENED_RUNTIME = NO;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -298,7 +306,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 1.0.7;
+				MARKETING_VERSION = 1.0.8;
 				PRODUCT_BUNDLE_IDENTIFIER = app.picker.mac;
 				PRODUCT_NAME = Picker;
 				SDKROOT = macosx;
@@ -408,7 +416,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "-";
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 7;
+				CURRENT_PROJECT_VERSION = 8;
 				ENABLE_APP_SANDBOX = NO;
 				ENABLE_HARDENED_RUNTIME = NO;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -418,7 +426,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 1.0.7;
+				MARKETING_VERSION = 1.0.8;
 				PRODUCT_BUNDLE_IDENTIFIER = app.picker.mac;
 				PRODUCT_NAME = Picker;
 				SDKROOT = macosx;

@@ -13,8 +13,8 @@ targets:
     info:
       path: Apps/Picker/Info.plist
       properties:
-        CFBundleShortVersionString: "1.0.7"
-        CFBundleVersion: "7"
+        CFBundleShortVersionString: "1.0.8"
+        CFBundleVersion: "8"
         LSApplicationCategoryType: public.app-category.utilities
         LSUIElement: false
         NSAccessibilityUsageDescription: Picker needs Accessibility access to read the text you select and to perform actions.
@@ -23,8 +23,8 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: app.picker.mac
         PRODUCT_NAME: Picker
-        MARKETING_VERSION: "1.0.7"
-        CURRENT_PROJECT_VERSION: "7"
+        MARKETING_VERSION: "1.0.8"
+        CURRENT_PROJECT_VERSION: "8"
         GENERATE_INFOPLIST_FILE: NO
         SWIFT_VERSION: "5.0"
         CODE_SIGN_IDENTITY: "-"
@@ -37,6 +37,8 @@ targets:
     sources:
       - Apps/PickerTests
       - Apps/Picker/Orca/PickerOrcaLauncher.swift
+      - Apps/Picker/Monitor/AccessibilityFocusedElementClient.swift
+      - Apps/Picker/Monitor/SelectionMonitor.swift
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: app.picker.mac.tests
@@ -50,9 +52,9 @@ schemes:
       targets:
         Picker: all
         PickerTests: [test]
+    run:
+      config: Debug
     test:
       config: Debug
       targets:
         - PickerTests
-    run:
-      config: Debug

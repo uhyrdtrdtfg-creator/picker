@@ -96,6 +96,7 @@ final class PickerMonitorBootstrap {
     func start() {
         guard !didStart else { return }
         didStart = true
+        PickerOrcaLauncher.preloadLoginShellPATHIfNeeded()
 
         if NSApp != nil && NSApp.isRunning {
             monitor.start()

@@ -121,10 +121,14 @@ public final class PickerPopupController {
         isOpeningOrcaPanel = true
         defer { isOpeningOrcaPanel = false }
 
+        let isOrcaAvailable = PickerOrcaLauncher.resolveOrcaExecutable() != nil
         if !orcaPanel.isVisible || orcaState.selectionText != resolvedSelection {
-            orcaState.reset(selectionText: resolvedSelection)
+            orcaState.reset(selectionText: resolvedSelection, isOrcaAvailable: isOrcaAvailable)
         } else {
-            orcaState.errorMessage = nil
+            orcaState.updateOrcaAvailability(isOrcaAvailable)
+            if isOrcaAvailable {
+                orcaState.errorMessage = nil
+            }
         }
 
         let fittingSize = orcaPanel.configureContent(
@@ -211,8 +215,13 @@ public final class PickerPopupController {
 
     private func handleOrcaAgentSelection(_ agent: OrcaAgent) {
         let selection = orcaState.selectionText
-        guard PickerOrcaLauncher.canSend(selection: selection), !orcaState.isLaunching else {
+        guard orcaState.canSend else {
             return
+        }
+
+        let note = orcaPanel.commitAndReadNoteText(fallback: orcaState.noteText)
+        if orcaState.noteText != note {
+            orcaState.noteText = note
         }
 
         orcaState.errorMessage = nil
@@ -220,7 +229,6 @@ public final class PickerPopupController {
         isLaunchingOrca = true
         refreshOrcaPanelFrame()
 
-        let note = orcaState.noteText
         if let onSendToOrca {
             onSendToOrca(agent, selection, note) { [weak self] outcome in
                 self?.applyOrcaLaunchOutcome(outcome)
@@ -247,6 +255,7 @@ public final class PickerPopupController {
         case .emptySelection:
             refreshOrcaPanelFrame()
         case .missingOrca:
+            orcaState.isOrcaAvailable = false
             orcaState.errorMessage = PickerOrcaStrings.missingOrcaMessage
             DispatchQueue.main.async { [weak self] in
                 self?.refreshOrcaPanelFrame()

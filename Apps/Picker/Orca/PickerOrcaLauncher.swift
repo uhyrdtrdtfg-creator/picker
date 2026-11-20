@@ -71,8 +71,103 @@ public enum PickerOrcaPreparationResult: Equatable, Sendable {
     case rejected(PickerOrcaLaunchOutcome)
 }
 
+private final class LoginShellPATHCache: @unchecked Sendable {
+    static let shared = LoginShellPATHCache()
+
+    private let lock = NSLock()
+    private var hasCaptured = false
+    private var cachedPATH: String?
+
+    func value(environment: [String: String]) -> String? {
+        lock.lock()
+        if hasCaptured {
+            let existing = cachedPATH
+            lock.unlock()
+            return existing
+        }
+        lock.unlock()
+
+        let captured = Self.captureLoginShellPATH(environment: environment)
+
+        lock.lock()
+        if !hasCaptured {
+            cachedPATH = captured
+            hasCaptured = true
+        }
+        let resolved = cachedPATH
+        lock.unlock()
+        return resolved
+    }
+
+    private static func captureLoginShellPATH(environment: [String: String]) -> String? {
+        let shell = resolvedLoginShell(from: environment)
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: shell)
+        process.arguments = ["-l", "-c", "/usr/bin/printenv PATH"]
+        process.standardInput = FileHandle.nullDevice
+
+        var shellEnv: [String: String] = [:]
+        for key in ["HOME", "USER", "LOGNAME", "SHELL", "LANG", "LC_ALL", "LC_CTYPE", "TERM"] {
+            if let value = environment[key], !value.isEmpty {
+                shellEnv[key] = value
+            }
+        }
+        if shellEnv["HOME"] == nil {
+            shellEnv["HOME"] = FileManager.default.homeDirectoryForCurrentUser.path
+        }
+        shellEnv["PATH"] = environment["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin"
+        process.environment = shellEnv
+
+        let stdoutPipe = Pipe()
+        process.standardOutput = stdoutPipe
+        process.standardError = FileHandle.nullDevice
+
+        let finished = DispatchSemaphore(value: 0)
+        process.terminationHandler = { _ in
+            finished.signal()
+        }
+
+        do {
+            try process.run()
+        } catch {
+            return nil
+        }
+
+        if finished.wait(timeout: .now() + 1.5) == .timedOut {
+            process.terminate()
+            return nil
+        }
+
+        let data = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
+        guard process.terminationStatus == 0,
+              let output = String(data: data, encoding: .utf8) else {
+            return nil
+        }
+
+        for line in output.components(separatedBy: .newlines).reversed() {
+            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty {
+                return trimmed
+            }
+        }
+        return nil
+    }
+
+    private static func resolvedLoginShell(from environment: [String: String]) -> String {
+        if let rawShell = environment["SHELL"]?.trimmingCharacters(in: .whitespacesAndNewlines),
+           rawShell.hasPrefix("/"),
+           FileManager.default.isExecutableFile(atPath: rawShell) {
+            return rawShell
+        }
+        if FileManager.default.isExecutableFile(atPath: "/bin/zsh") {
+            return "/bin/zsh"
+        }
+        return "/bin/sh"
+    }
+}
+
 public enum PickerOrcaLauncher {
-    public static let maxDisplayCharacters = 400
+    public static let maxDisplayCharacters = 80
     public static let maxInlineSelectionCharacters = 8000
     public static let maxNoteCharacters = 2000
     public static let envExecutablePath = "/usr/bin/env"
@@ -91,6 +186,15 @@ public enum PickerOrcaLauncher {
         "__CF_USER_TEXT_ENCODING"
     ]
 
+    private static let fallbackSystemPATHDirectories: [String] = [
+        "/opt/homebrew/bin",
+        "/usr/local/bin",
+        "/usr/bin",
+        "/bin",
+        "/usr/sbin",
+        "/sbin"
+    ]
+
     public static func canSend(selection: String) -> Bool {
         !selection.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
@@ -99,43 +203,157 @@ public enum PickerOrcaLauncher {
         _ selection: String,
         maxCharacters: Int = maxDisplayCharacters
     ) -> String {
-        guard maxCharacters > 0, selection.count > maxCharacters else {
-            return selection
+        let singleLine = selection
+            .components(separatedBy: .whitespacesAndNewlines)
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+        guard maxCharacters > 0, singleLine.count > maxCharacters else {
+            return singleLine
         }
-        return String(selection.prefix(maxCharacters)) + "…"
+        return String(singleLine.prefix(maxCharacters)) + "…"
+    }
+
+    public static func defaultCandidatePaths(
+        homeDirectory: String = FileManager.default.homeDirectoryForCurrentUser.path
+    ) -> [String] {
+        let standardizedHome = URL(fileURLWithPath: homeDirectory).standardizedFileURL.path
+        var paths: [String] = [
+            "/Applications/Orca.app/Contents/Resources/bin/orca",
+            "/opt/homebrew/bin/orca",
+            "/usr/local/bin/orca"
+        ]
+        if !standardizedHome.isEmpty, standardizedHome != "/" {
+            paths.append((standardizedHome as NSString).appendingPathComponent(".local/bin/orca"))
+            paths.append((standardizedHome as NSString).appendingPathComponent("Applications/Orca.app/Contents/Resources/bin/orca"))
+        }
+        return paths
+    }
+
+    public static func isUsableExecutable(
+        atPath path: String,
+        fileManager: FileManager = .default
+    ) -> Bool {
+        guard path.hasPrefix("/"), path != "/" else { return false }
+        var isDirectory: ObjCBool = false
+        guard fileManager.fileExists(atPath: path, isDirectory: &isDirectory),
+              !isDirectory.boolValue else {
+            return false
+        }
+        return fileManager.isExecutableFile(atPath: path)
+    }
+
+    public static func resolveOrcaExecutable(
+        candidatePaths: [String]? = nil,
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        homeDirectory: String = FileManager.default.homeDirectoryForCurrentUser.path,
+        includeLoginShellPATH: Bool = true,
+        loginShellPATHProvider: (() -> String?)? = nil,
+        fileManager: FileManager = .default
+    ) -> String? {
+        let fixedCandidates = candidatePaths ?? defaultCandidatePaths(homeDirectory: homeDirectory)
+        for rawCandidate in fixedCandidates {
+            let expanded = expandLeadingTilde(in: rawCandidate, homeDirectory: homeDirectory)
+            if isUsableExecutable(atPath: expanded, fileManager: fileManager) {
+                return expanded
+            }
+        }
+
+        if let envMatch = findExecutableInPATH(
+            environment["PATH"],
+            homeDirectory: homeDirectory,
+            fileManager: fileManager
+        ) {
+            return envMatch
+        }
+
+        if let loginShellPATHProvider {
+            if let loginMatch = findExecutableInPATH(
+                loginShellPATHProvider(),
+                homeDirectory: homeDirectory,
+                fileManager: fileManager
+            ) {
+                return loginMatch
+            }
+        } else if includeLoginShellPATH {
+            let loginPATH = LoginShellPATHCache.shared.value(environment: environment)
+            if let loginMatch = findExecutableInPATH(
+                loginPATH,
+                homeDirectory: homeDirectory,
+                fileManager: fileManager
+            ) {
+                return loginMatch
+            }
+        }
+
+        return nil
+    }
+
+    public static func preloadLoginShellPATHIfNeeded() {
+        DispatchQueue.global(qos: .utility).async {
+            if resolveOrcaExecutable(includeLoginShellPATH: false) != nil {
+                return
+            }
+            _ = LoginShellPATHCache.shared.value(environment: ProcessInfo.processInfo.environment)
+        }
     }
 
     public static func isOrcaOnPATH(
         environment: [String: String] = ProcessInfo.processInfo.environment,
         fileManager: FileManager = .default
     ) -> Bool {
-        guard let rawPATH = environment["PATH"], !rawPATH.isEmpty else {
-            return false
-        }
-
-        for segment in rawPATH.split(separator: ":", omittingEmptySubsequences: true) {
-            let directory = String(segment)
-            guard directory.hasPrefix("/") else { continue }
-            let candidate = (directory as NSString).appendingPathComponent("orca")
-            var isDirectory: ObjCBool = false
-            if fileManager.fileExists(atPath: candidate, isDirectory: &isDirectory),
-               !isDirectory.boolValue,
-               fileManager.isExecutableFile(atPath: candidate) {
-                return true
-            }
-        }
-        return false
+        findExecutableInPATH(
+            environment["PATH"],
+            homeDirectory: FileManager.default.homeDirectoryForCurrentUser.path,
+            fileManager: fileManager
+        ) != nil
     }
 
     public static func sanitizedEnvironment(
-        from source: [String: String] = ProcessInfo.processInfo.environment
+        from source: [String: String] = ProcessInfo.processInfo.environment,
+        executablePath: String? = nil,
+        homeDirectory: String = FileManager.default.homeDirectoryForCurrentUser.path
     ) -> [String: String] {
         var clean: [String: String] = [:]
         for key in allowedEnvironmentKeys {
-            if let value = source[key] {
+            if let value = source[key], !value.isEmpty {
                 clean[key] = value
             }
         }
+
+        if clean["HOME"] == nil, !homeDirectory.isEmpty, homeDirectory != "/" {
+            clean["HOME"] = homeDirectory
+        }
+
+        if clean["LANG"] == nil && clean["LC_ALL"] == nil && clean["LC_CTYPE"] == nil {
+            clean["LANG"] = "en_US.UTF-8"
+        }
+
+        var pathEntries: [String] = []
+        var seen: Set<String> = []
+
+        func appendDirectory(_ dir: String) {
+            guard dir.hasPrefix("/"), dir != "/" else { return }
+            if seen.insert(dir).inserted {
+                pathEntries.append(dir)
+            }
+        }
+
+        if let executablePath, executablePath.hasPrefix("/") {
+            let execDir = (executablePath as NSString).deletingLastPathComponent
+            appendDirectory(execDir)
+        }
+
+        if let existingPATH = clean["PATH"] {
+            for segment in existingPATH.split(separator: ":", omittingEmptySubsequences: true) {
+                appendDirectory(expandLeadingTilde(in: String(segment), homeDirectory: homeDirectory))
+            }
+        }
+
+        for fallbackDir in fallbackSystemPATHDirectories {
+            appendDirectory(fallbackDir)
+        }
+
+        clean["PATH"] = pathEntries.joined(separator: ":")
         return clean
     }
 
@@ -147,7 +365,7 @@ public enum PickerOrcaLauncher {
         fileManager: FileManager = .default
     ) throws -> (prompt: String, tempFilePath: String?) {
         let trimmedNote = note.trimmingCharacters(in: .whitespacesAndNewlines)
-        let formattedNote = trimmedNote.isEmpty ? "(none)" : String(note.prefix(maxNoteCharacters))
+        let formattedNote = trimmedNote.isEmpty ? "(none)" : String(trimmedNote.prefix(maxNoteCharacters))
 
         if selection.count <= maxInlineSelectionCharacters {
             let prompt = """
@@ -214,8 +432,11 @@ public enum PickerOrcaLauncher {
         selection: String,
         note: String,
         frontDocumentPath: String?,
+        candidatePaths: [String]? = nil,
         environment: [String: String] = ProcessInfo.processInfo.environment,
         homeDirectory: String = FileManager.default.homeDirectoryForCurrentUser.path,
+        includeLoginShellPATH: Bool = true,
+        loginShellPATHProvider: (() -> String?)? = nil,
         temporaryDirectory: String = NSTemporaryDirectory(),
         uuid: UUID = UUID(),
         fileManager: FileManager = .default
@@ -224,7 +445,14 @@ public enum PickerOrcaLauncher {
             return .rejected(.emptySelection)
         }
 
-        guard isOrcaOnPATH(environment: environment, fileManager: fileManager) else {
+        guard let executablePath = resolveOrcaExecutable(
+            candidatePaths: candidatePaths,
+            environment: environment,
+            homeDirectory: homeDirectory,
+            includeLoginShellPATH: includeLoginShellPATH,
+            loginShellPATHProvider: loginShellPATHProvider,
+            fileManager: fileManager
+        ) else {
             return .rejected(.missingOrca)
         }
 
@@ -248,10 +476,13 @@ public enum PickerOrcaLauncher {
             fileManager: fileManager
         )
         let cwd = resolveWorkingDirectory(worktreeDirectory: worktreeDir, homeDirectory: homeDirectory)
-        let cleanEnvironment = sanitizedEnvironment(from: environment)
+        let cleanEnvironment = sanitizedEnvironment(
+            from: environment,
+            executablePath: executablePath,
+            homeDirectory: homeDirectory
+        )
 
         var arguments: [String] = [
-            "orca",
             "agent",
             "launch",
             "--agent", agent.cliID,
@@ -266,7 +497,7 @@ public enum PickerOrcaLauncher {
 
         return .ready(
             PickerOrcaLaunchCommand(
-                executablePath: envExecutablePath,
+                executablePath: executablePath,
                 arguments: arguments,
                 currentDirectoryPath: cwd,
                 environment: cleanEnvironment,
@@ -282,8 +513,11 @@ public enum PickerOrcaLauncher {
         selection: String,
         note: String,
         frontDocumentPath: String?,
+        candidatePaths: [String]? = nil,
         environment: [String: String] = ProcessInfo.processInfo.environment,
         homeDirectory: String = FileManager.default.homeDirectoryForCurrentUser.path,
+        includeLoginShellPATH: Bool = true,
+        loginShellPATHProvider: (() -> String?)? = nil,
         temporaryDirectory: String = NSTemporaryDirectory(),
         fileManager: FileManager = .default,
         completion: @escaping @MainActor (PickerOrcaLaunchOutcome) -> Void
@@ -293,8 +527,11 @@ public enum PickerOrcaLauncher {
             selection: selection,
             note: note,
             frontDocumentPath: frontDocumentPath,
+            candidatePaths: candidatePaths,
             environment: environment,
             homeDirectory: homeDirectory,
+            includeLoginShellPATH: includeLoginShellPATH,
+            loginShellPATHProvider: loginShellPATHProvider,
             temporaryDirectory: temporaryDirectory,
             fileManager: fileManager
         )
@@ -383,6 +620,39 @@ public enum PickerOrcaLauncher {
         }
 
         return "orca exited with status \(exitStatus)"
+    }
+
+    private static func findExecutableInPATH(
+        _ rawPATH: String?,
+        homeDirectory: String,
+        fileManager: FileManager
+    ) -> String? {
+        guard let rawPATH, !rawPATH.isEmpty else {
+            return nil
+        }
+
+        for segment in rawPATH.split(separator: ":", omittingEmptySubsequences: true) {
+            let directory = expandLeadingTilde(in: String(segment), homeDirectory: homeDirectory)
+            guard directory.hasPrefix("/"), directory != "/" else { continue }
+            let candidate = (directory as NSString).appendingPathComponent("orca")
+            if isUsableExecutable(atPath: candidate, fileManager: fileManager) {
+                return candidate
+            }
+        }
+        return nil
+    }
+
+    private static func expandLeadingTilde(in path: String, homeDirectory: String) -> String {
+        let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed == "~" {
+            return URL(fileURLWithPath: homeDirectory).standardizedFileURL.path
+        }
+        if trimmed.hasPrefix("~/") {
+            let suffix = String(trimmed.dropFirst(2))
+            let baseHome = URL(fileURLWithPath: homeDirectory).standardizedFileURL.path
+            return (baseHome as NSString).appendingPathComponent(suffix)
+        }
+        return trimmed
     }
 
     private static func isMissingOrcaEnvLine(_ line: String) -> Bool {

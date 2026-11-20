@@ -28,7 +28,6 @@ struct PickerSettingsView: View {
     @AppStorage(PickerDefaultsKey.startAtLogin) private var storedStartAtLogin = false
     @AppStorage(PickerDefaultsKey.excludedBundleIdentifiers) private var excludedBundleIdentifiersText = ""
 
-    @State private var isOpenAtLoginUnavailable = false
     @State private var loginItemMessage = ""
 
     var body: some View {
@@ -44,8 +43,8 @@ struct PickerSettingsView: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Toggle("Start at login", isOn: startAtLoginBinding)
 
-                    if isOpenAtLoginUnavailable {
-                        Text(loginItemMessage.isEmpty ? "Open at Login is unavailable" : loginItemMessage)
+                    if !loginItemMessage.isEmpty {
+                        Text(loginItemMessage)
                             .font(.caption)
                             .foregroundColor(.secondary)
                     }
@@ -107,53 +106,84 @@ struct PickerSettingsView: View {
         Binding(
             get: { storedStartAtLogin },
             set: { newValue in
-                storedStartAtLogin = newValue
                 applyStartAtLogin(newValue)
             }
         )
     }
 
-    private var canUseAppService: Bool {
-        guard Bundle.main.bundleURL.pathExtension == "app",
-              Bundle.main.bundleIdentifier != nil else {
-            return false
-        }
-        return SMAppService.mainApp.status != .notFound
+    private var isRunningFromAppBundle: Bool {
+        Bundle.main.bundleURL.pathExtension == "app" && Bundle.main.bundleIdentifier != nil
     }
 
     private func syncLoginItemState() {
-        guard canUseAppService else {
-            isOpenAtLoginUnavailable = true
+        guard isRunningFromAppBundle else {
+            storedStartAtLogin = false
             return
         }
 
-        let status = SMAppService.mainApp.status
-        isOpenAtLoginUnavailable = false
-        if status == .enabled {
+        switch SMAppService.mainApp.status {
+        case .enabled:
             storedStartAtLogin = true
+            loginItemMessage = ""
+        case .requiresApproval:
+            storedStartAtLogin = true
+            loginItemMessage = "Allow Picker in System Settings > General > Login Items."
+        case .notRegistered, .notFound:
+            storedStartAtLogin = false
+        @unknown default:
+            storedStartAtLogin = false
         }
     }
 
     private func applyStartAtLogin(_ enabled: Bool) {
-        guard canUseAppService else {
-            isOpenAtLoginUnavailable = true
+        guard isRunningFromAppBundle else {
+            storedStartAtLogin = false
+            loginItemMessage = "Start at login requires running Picker from an app bundle."
             return
         }
 
-        do {
-            let currentStatus = SMAppService.mainApp.status
-            if enabled {
-                if currentStatus == .enabled {
+        if enabled {
+            do {
+                if SMAppService.mainApp.status == .enabled {
                     try? SMAppService.mainApp.unregister()
                 }
                 try SMAppService.mainApp.register()
-            } else if currentStatus == .enabled || currentStatus == .requiresApproval {
-                try SMAppService.mainApp.unregister()
+                switch SMAppService.mainApp.status {
+                case .enabled:
+                    storedStartAtLogin = true
+                    loginItemMessage = ""
+                case .requiresApproval:
+                    storedStartAtLogin = true
+                    loginItemMessage = "Allow Picker in System Settings > General > Login Items."
+                case .notRegistered, .notFound:
+                    storedStartAtLogin = false
+                    loginItemMessage = "macOS did not register Picker as a login item."
+                @unknown default:
+                    storedStartAtLogin = false
+                    loginItemMessage = "macOS reported an unknown login item status."
+                }
+            } catch {
+                storedStartAtLogin = false
+                loginItemMessage = Self.describeLoginItemError(error)
             }
-            isOpenAtLoginUnavailable = (SMAppService.mainApp.status == .notFound)
-        } catch {
-            isOpenAtLoginUnavailable = true
-            loginItemMessage = error.localizedDescription
+        } else {
+            do {
+                let currentStatus = SMAppService.mainApp.status
+                if currentStatus == .enabled || currentStatus == .requiresApproval {
+                    try SMAppService.mainApp.unregister()
+                }
+                storedStartAtLogin = false
+                loginItemMessage = ""
+            } catch {
+                let postStatus = SMAppService.mainApp.status
+                storedStartAtLogin = (postStatus == .enabled || postStatus == .requiresApproval)
+                loginItemMessage = Self.describeLoginItemError(error)
+            }
         }
+    }
+
+    private static func describeLoginItemError(_ error: Error) -> String {
+        let localized = error.localizedDescription.trimmingCharacters(in: .whitespacesAndNewlines)
+        return localized.isEmpty ? String(describing: error) : localized
     }
 }

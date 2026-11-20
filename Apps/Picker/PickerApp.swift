@@ -5,16 +5,21 @@ extension Notification.Name {
     static let pickerShowLastSelection = Notification.Name("app.picker.mac.showLastSelection")
 }
 
-@main
-struct PickerApp: App {
-    private static let settingsWindowID = "picker-settings"
-
-    init() {
+@MainActor
+final class PickerAppDelegate: NSObject, NSApplicationDelegate {
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        NSApp.setActivationPolicy(.regular)
         PickerMonitorBootstrap.shared.start()
     }
+}
+
+@main
+struct PickerApp: App {
+    @NSApplicationDelegateAdaptor(PickerAppDelegate.self) private var appDelegate
+    private static let settingsWindowID = "picker-settings"
 
     var body: some Scene {
-        MenuBarExtra("Picker") {
+        MenuBarExtra("Picker", systemImage: "selection.pin.in.out") {
             PickerMenuContent(settingsWindowID: Self.settingsWindowID)
         }
 
@@ -57,7 +62,7 @@ private struct PickerMenuContent: View {
         activateApplication()
         DispatchQueue.main.async {
             activateApplication()
-            for window in NSApp.windows where window.title == "Picker Settings" {
+            for window in NSApplication.shared.windows where window.title == "Picker Settings" {
                 window.makeKeyAndOrderFront(nil)
                 window.orderFrontRegardless()
             }
@@ -66,9 +71,9 @@ private struct PickerMenuContent: View {
 
     private func activateApplication() {
         if #available(macOS 14.0, *) {
-            NSApp.activate()
+            NSApplication.shared.activate()
         } else {
-            NSApp.activate(ignoringOtherApps: true)
+            NSApplication.shared.activate(ignoringOtherApps: true)
         }
     }
 }

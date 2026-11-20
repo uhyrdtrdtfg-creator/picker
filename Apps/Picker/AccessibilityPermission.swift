@@ -62,7 +62,7 @@ enum AccessibilityPermission {
 
     static var explanationText: String {
         let pane = settingsPathDescription
-        return "Click the button so macOS adds Picker to the list. Then turn Picker on in \(pane). If it is missing, click + and choose Picker in Applications."
+        return "Open \(pane), click +, and choose Picker from Applications. Then turn its switch on. macOS does not add an unsigned menu-bar app by itself."
     }
 
     static func requestAccess() {

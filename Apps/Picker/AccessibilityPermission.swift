@@ -85,13 +85,68 @@ enum AccessibilityPermission {
     }
 }
 
+struct PickerSettingsActionButton: View {
+    let title: String
+    let action: () -> Void
+
+    @Environment(\.colorScheme) private var colorScheme
+    @State private var isHovered = false
+
+    var body: some View {
+        Button(action: action) {
+            Text(title)
+                .font(.system(size: PickerStyle.bodySize, weight: .medium))
+                .foregroundColor(.primary)
+                .padding(.horizontal, 10)
+                .frame(height: PickerStyle.orcaControlHeight)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(
+            PickerSettingsActionButtonStyle(
+                colorScheme: colorScheme,
+                isHovered: isHovered
+            )
+        )
+        .onHover { hovering in
+            isHovered = hovering
+        }
+    }
+}
+
+private struct PickerSettingsActionButtonStyle: ButtonStyle {
+    let colorScheme: ColorScheme
+    let isHovered: Bool
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .background(
+                RoundedRectangle(cornerRadius: PickerStyle.controlCornerRadius, style: .continuous)
+                    .fill(backgroundFill(isPressed: configuration.isPressed))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: PickerStyle.controlCornerRadius, style: .continuous)
+                    .strokeBorder(PickerStyle.borderColor(for: colorScheme), lineWidth: PickerStyle.borderWidth)
+            )
+    }
+
+    private func backgroundFill(isPressed: Bool) -> Color {
+        if isPressed {
+            return PickerStyle.pressedColor(for: colorScheme)
+        }
+        if isHovered {
+            return PickerStyle.hoverColor(for: colorScheme)
+        }
+        return .clear
+    }
+}
+
 struct OpenAccessibilitySettingsButton: View {
     var isTrusted: Bool = AccessibilityPermission.isTrusted
     var action: () -> Void = AccessibilityPermission.openSystemSettings
 
     var body: some View {
-        Button(
-            isTrusted
+        PickerSettingsActionButton(
+            title: isTrusted
                 ? AccessibilityPermission.openSettingsButtonTitle
                 : AccessibilityPermission.requestButtonTitle
         ) {
@@ -105,31 +160,48 @@ struct OpenAccessibilitySettingsButton: View {
 }
 
 struct AccessibilityPermissionView: View {
+    @Environment(\.colorScheme) private var colorScheme
     @State private var isTrusted = AccessibilityPermission.isTrusted
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 8) {
-                Image(systemName: isTrusted ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
-                    .foregroundColor(isTrusted ? .green : .orange)
-                Text(isTrusted ? AccessibilityPermission.settingsPaneTitle : AccessibilityPermission.requiredHeadline)
-                Spacer()
-                Text(isTrusted ? "Authorized" : "Not Authorized")
-                    .foregroundColor(.secondary)
-            }
+        VStack(alignment: .leading, spacing: 0) {
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 8) {
+                    Image(systemName: isTrusted ? "checkmark.circle" : "exclamationmark.triangle")
+                        .font(.system(size: PickerStyle.bodySize, weight: .medium))
+                        .foregroundColor(isTrusted ? .secondary : PickerStyle.errorColor)
+                    Text(isTrusted ? AccessibilityPermission.settingsPaneTitle : AccessibilityPermission.requiredHeadline)
+                        .font(.system(size: PickerStyle.bodySize))
+                        .foregroundColor(.primary)
+                    Spacer()
+                    Text(isTrusted ? "Authorized" : "Not Authorized")
+                        .font(.system(size: PickerStyle.captionSize))
+                        .foregroundColor(isTrusted ? .secondary : PickerStyle.errorColor)
+                }
 
-            if !isTrusted {
-                Text(AccessibilityPermission.explanationText)
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            }
-
-            HStack {
-                OpenAccessibilitySettingsButton(isTrusted: isTrusted)
-                Button("Refresh") {
-                    refreshTrustState()
+                if !isTrusted {
+                    Text(AccessibilityPermission.explanationText)
+                        .font(.system(size: PickerStyle.captionSize))
+                        .foregroundColor(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+
+            Rectangle()
+                .fill(PickerStyle.borderColor(for: colorScheme))
+                .frame(height: PickerStyle.dividerThickness)
+
+            HStack(spacing: 8) {
+                OpenAccessibilitySettingsButton(isTrusted: isTrusted)
+                PickerSettingsActionButton(title: "Refresh") {
+                    refreshTrustState()
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
         }
         .onAppear {
             refreshTrustState()

@@ -24,60 +24,125 @@ enum PickerDefaultsKey {
 }
 
 struct PickerSettingsView: View {
+    @Environment(\.colorScheme) private var colorScheme
+
     @AppStorage(PickerDefaultsKey.appearAutomatically) private var appearAutomatically = true
     @AppStorage(PickerDefaultsKey.startAtLogin) private var storedStartAtLogin = false
     @AppStorage(PickerDefaultsKey.excludedBundleIdentifiers) private var excludedBundleIdentifiersText = ""
 
     @State private var loginItemMessage = ""
+    @State private var loginItemIsError = false
 
     var body: some View {
-        Form {
-            Section("Activation") {
-                VStack(alignment: .leading, spacing: 4) {
-                    Toggle("Appear automatically", isOn: appearAutomaticallyBinding)
-                    Text("Picker appears automatically when you select text with the pointer or when you click and hold.")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                settingsSection("Activation") {
+                    VStack(alignment: .leading, spacing: 0) {
+                        HStack(alignment: .center, spacing: 12) {
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text("Appear automatically")
+                                    .font(.system(size: PickerStyle.bodySize))
+                                    .foregroundColor(.primary)
+                                Text("Picker appears automatically when you select text with the pointer or when you click and hold.")
+                                    .font(.system(size: PickerStyle.captionSize))
+                                    .foregroundColor(.secondary)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                            Spacer(minLength: 8)
+                            Toggle("", isOn: appearAutomaticallyBinding)
+                                .labelsHidden()
+                                .toggleStyle(.switch)
+                                .controlSize(.small)
+                                .accessibilityLabel(Text("Appear automatically"))
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 10)
 
-                VStack(alignment: .leading, spacing: 4) {
-                    Toggle("Start at login", isOn: startAtLoginBinding)
+                        Rectangle()
+                            .fill(PickerStyle.borderColor(for: colorScheme))
+                            .frame(height: PickerStyle.dividerThickness)
 
-                    if !loginItemMessage.isEmpty {
-                        Text(loginItemMessage)
-                            .font(.caption)
-                            .foregroundColor(.secondary)
+                        HStack(alignment: .center, spacing: 12) {
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text("Start at login")
+                                    .font(.system(size: PickerStyle.bodySize))
+                                    .foregroundColor(.primary)
+
+                                if !loginItemMessage.isEmpty {
+                                    Text(loginItemMessage)
+                                        .font(.system(size: PickerStyle.captionSize))
+                                        .foregroundColor(loginItemIsError ? PickerStyle.errorColor : .secondary)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                }
+                            }
+                            Spacer(minLength: 8)
+                            Toggle("", isOn: startAtLoginBinding)
+                                .labelsHidden()
+                                .toggleStyle(.switch)
+                                .controlSize(.small)
+                                .accessibilityLabel(Text("Start at login"))
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 10)
                     }
                 }
-            }
 
-            Section("Permissions") {
-                AccessibilityPermissionView()
-            }
+                settingsSection("Permissions") {
+                    AccessibilityPermissionView()
+                }
 
-            Section("Exclude these apps") {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Restrict where Picker can appear automatically. Enter one bundle identifier per line:")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
+                settingsSection("Exclude these apps") {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Restrict where Picker can appear automatically. Enter one bundle identifier per line:")
+                            .font(.system(size: PickerStyle.captionSize))
+                            .foregroundColor(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
 
-                    TextEditor(text: excludedAppsBinding)
-                        .font(.system(.body, design: .monospaced))
-                        .frame(minHeight: 110)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 6)
-                                .stroke(Color.secondary.opacity(0.25), lineWidth: 1)
-                        )
+                        TextEditor(text: excludedAppsBinding)
+                            .font(.system(size: PickerStyle.bodySize, design: .monospaced))
+                            .foregroundColor(.primary)
+                            .scrollContentBackground(.hidden)
+                            .padding(6)
+                            .frame(minHeight: 92)
+                            .background(PickerStyle.surfaceColor(for: colorScheme))
+                            .clipShape(RoundedRectangle(cornerRadius: PickerStyle.controlCornerRadius, style: .continuous))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: PickerStyle.controlCornerRadius, style: .continuous)
+                                    .strokeBorder(PickerStyle.borderColor(for: colorScheme), lineWidth: PickerStyle.borderWidth)
+                            )
+                    }
+                    .padding(12)
                 }
             }
+            .padding(18)
         }
-        .formStyle(.grouped)
         .frame(minWidth: 460, idealWidth: 500, minHeight: 440)
         .onAppear {
             syncLoginItemState()
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             syncLoginItemState()
+        }
+    }
+
+    @ViewBuilder
+    private func settingsSection<Content: View>(
+        _ title: String,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title)
+                .font(.system(size: PickerStyle.sectionTitleSize, weight: .semibold))
+                .foregroundColor(.primary)
+
+            content()
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(PickerStyle.surfaceColor(for: colorScheme))
+                .clipShape(RoundedRectangle(cornerRadius: PickerStyle.cornerRadius, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: PickerStyle.cornerRadius, style: .continuous)
+                        .strokeBorder(PickerStyle.borderColor(for: colorScheme), lineWidth: PickerStyle.borderWidth)
+                )
         }
     }
 
@@ -125,9 +190,11 @@ struct PickerSettingsView: View {
         case .enabled:
             storedStartAtLogin = true
             loginItemMessage = ""
+            loginItemIsError = false
         case .requiresApproval:
             storedStartAtLogin = true
             loginItemMessage = "Allow Picker in System Settings > General > Login Items."
+            loginItemIsError = false
         case .notRegistered, .notFound:
             storedStartAtLogin = false
         @unknown default:
@@ -139,6 +206,7 @@ struct PickerSettingsView: View {
         guard isRunningFromAppBundle else {
             storedStartAtLogin = false
             loginItemMessage = "Start at login requires running Picker from an app bundle."
+            loginItemIsError = true
             return
         }
 
@@ -152,19 +220,24 @@ struct PickerSettingsView: View {
                 case .enabled:
                     storedStartAtLogin = true
                     loginItemMessage = ""
+                    loginItemIsError = false
                 case .requiresApproval:
                     storedStartAtLogin = true
                     loginItemMessage = "Allow Picker in System Settings > General > Login Items."
+                    loginItemIsError = false
                 case .notRegistered, .notFound:
                     storedStartAtLogin = false
                     loginItemMessage = "macOS did not register Picker as a login item."
+                    loginItemIsError = true
                 @unknown default:
                     storedStartAtLogin = false
                     loginItemMessage = "macOS reported an unknown login item status."
+                    loginItemIsError = true
                 }
             } catch {
                 storedStartAtLogin = false
                 loginItemMessage = Self.describeLoginItemError(error)
+                loginItemIsError = true
             }
         } else {
             do {
@@ -174,10 +247,12 @@ struct PickerSettingsView: View {
                 }
                 storedStartAtLogin = false
                 loginItemMessage = ""
+                loginItemIsError = false
             } catch {
                 let postStatus = SMAppService.mainApp.status
                 storedStartAtLogin = (postStatus == .enabled || postStatus == .requiresApproval)
                 loginItemMessage = Self.describeLoginItemError(error)
+                loginItemIsError = true
             }
         }
     }

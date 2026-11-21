@@ -15,7 +15,7 @@ public final class PickerPopupPanel: NSPanel {
     private var hostingView: FirstMouseHostingView<PickerPopupView>?
     private var isPerformingResignHide = false
 
-    public init(contentRect: NSRect = NSRect(x: 0, y: 0, width: 120, height: 34)) {
+    public init(contentRect: NSRect = NSRect(x: 0, y: 0, width: 120, height: 30)) {
         super.init(
             contentRect: contentRect,
             styleMask: [.borderless, .nonactivatingPanel],
@@ -77,11 +77,11 @@ public final class PickerPopupPanel: NSPanel {
         hidesOnDeactivate = false
         isOpaque = false
         backgroundColor = .clear
-        hasShadow = true
+        hasShadow = false
         isMovableByWindowBackground = false
         isReleasedWhenClosed = false
         becomesKeyOnlyIfNeeded = true
-        appearance = NSAppearance(named: .aqua)
+        appearance = nil
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient, .ignoresCycle]
         animationBehavior = .utilityWindow
     }

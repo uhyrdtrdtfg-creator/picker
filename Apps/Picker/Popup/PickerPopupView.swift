@@ -1,14 +1,11 @@
 import SwiftUI
 
 public struct PickerPopupView: View {
-    public static let minimumButtonHeight: CGFloat = 28
+    public static let buttonSize: CGFloat = PickerStyle.popupButtonSize
+    public static let minimumButtonHeight: CGFloat = PickerStyle.popupButtonSize
+    public static let symbolSize: CGFloat = PickerStyle.popupSymbolSize
 
-    private static let surfaceBackgroundColor = Color(red: 0.98, green: 0.98, blue: 0.99)
-    private static let hoverBackgroundColor = Color(red: 0.91, green: 0.92, blue: 0.95)
-    private static let pressedBackgroundColor = Color(red: 0.85, green: 0.87, blue: 0.91)
-    private static let primaryTextColor = Color(red: 0.11, green: 0.12, blue: 0.14)
-    private static let dividerColor = Color.black.opacity(0.09)
-    private static let borderColor = Color.black.opacity(0.14)
+    @Environment(\.colorScheme) private var colorScheme
 
     public let actions: [PopupAction]
     public let onAction: (String) -> Void
@@ -24,34 +21,51 @@ public struct PickerPopupView: View {
     public var body: some View {
         HStack(spacing: 0) {
             ForEach(Array(actions.enumerated()), id: \.element.id) { index, action in
-                if index > 0 {
+                if Self.shouldShowDivider(before: index, in: actions) {
                     Rectangle()
-                        .fill(Self.dividerColor)
-                        .frame(width: 1, height: 18)
+                        .fill(PickerStyle.borderColor(for: colorScheme))
+                        .frame(width: PickerStyle.dividerThickness, height: 16)
+                        .padding(.horizontal, 1)
                 }
 
                 PopupActionButton(
                     title: Self.resolvedTitle(for: action),
                     symbolName: Self.resolvedSymbolName(for: action),
-                    minimumHeight: Self.minimumButtonHeight,
-                    textColor: Self.primaryTextColor,
-                    hoverColor: Self.hoverBackgroundColor,
-                    pressedColor: Self.pressedBackgroundColor
+                    size: Self.buttonSize,
+                    symbolSize: Self.symbolSize,
+                    hoverColor: PickerStyle.hoverColor(for: colorScheme),
+                    pressedColor: PickerStyle.pressedColor(for: colorScheme)
                 ) {
                     onAction(action.id)
                 }
             }
         }
-        .padding(.horizontal, 3)
-        .padding(.vertical, 2)
-        .background(Self.surfaceBackgroundColor)
-        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .padding(1)
+        .background(PickerStyle.surfaceColor(for: colorScheme))
+        .clipShape(RoundedRectangle(cornerRadius: PickerStyle.cornerRadius, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .strokeBorder(Self.borderColor, lineWidth: 0.75)
+            RoundedRectangle(cornerRadius: PickerStyle.cornerRadius, style: .continuous)
+                .strokeBorder(PickerStyle.borderColor(for: colorScheme), lineWidth: PickerStyle.borderWidth)
         )
+        .shadow(
+            color: PickerStyle.shadowColor(for: colorScheme),
+            radius: PickerStyle.shadowRadius,
+            x: 0,
+            y: PickerStyle.shadowOffsetY
+        )
+        .padding(PickerStyle.floatingShadowInsets)
         .fixedSize()
-        .environment(\.colorScheme, .light)
+    }
+
+    public static func actionGroup(for action: PopupAction) -> PopupActionGroup {
+        PopupBuiltInAction(actionID: action.id)?.group ?? .lookup
+    }
+
+    public static func shouldShowDivider(before index: Int, in actions: [PopupAction]) -> Bool {
+        guard index > 0, index < actions.count else {
+            return false
+        }
+        return actionGroup(for: actions[index - 1]) != actionGroup(for: actions[index])
     }
 
     public static func resolvedTitle(for action: PopupAction) -> String {
@@ -78,8 +92,8 @@ public struct PickerPopupView: View {
 private struct PopupActionButton: View {
     let title: String
     let symbolName: String
-    let minimumHeight: CGFloat
-    let textColor: Color
+    let size: CGFloat
+    let symbolSize: CGFloat
     let hoverColor: Color
     let pressedColor: Color
     let action: () -> Void
@@ -88,17 +102,11 @@ private struct PopupActionButton: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 5) {
-                Image(systemName: symbolName)
-                    .font(.system(size: 12, weight: .medium))
-                Text(title)
-                    .font(.system(size: 12, weight: .medium))
-                    .lineLimit(1)
-            }
-            .foregroundColor(textColor)
-            .padding(.horizontal, 9)
-            .frame(minHeight: minimumHeight)
-            .contentShape(Rectangle())
+            Image(systemName: symbolName)
+                .font(.system(size: symbolSize))
+                .foregroundColor(.primary)
+                .frame(width: size, height: size)
+                .contentShape(Rectangle())
         }
         .buttonStyle(
             PopupActionButtonStyle(
@@ -123,7 +131,7 @@ private struct PopupActionButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .background(
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
                     .fill(backgroundFill(isPressed: configuration.isPressed))
             )
     }

@@ -51,7 +51,7 @@ public final class PickerOrcaPanel: NSPanel {
 
     private var hostingView: OrcaFirstMouseHostingView<PickerOrcaView>?
 
-    public init(contentRect: NSRect = NSRect(x: 0, y: 0, width: 280, height: 96)) {
+    public init(contentRect: NSRect = NSRect(x: 0, y: 0, width: 266, height: 80)) {
         super.init(
             contentRect: contentRect,
             styleMask: [.borderless, .nonactivatingPanel],
@@ -186,7 +186,6 @@ public final class PickerOrcaPanel: NSPanel {
         host.layoutSubtreeIfNeeded()
         let fitting = host.fittingSize
         setContentSize(fitting)
-        invalidateShadow()
         return fitting
     }
 
@@ -196,11 +195,11 @@ public final class PickerOrcaPanel: NSPanel {
         hidesOnDeactivate = false
         isOpaque = false
         backgroundColor = .clear
-        hasShadow = true
+        hasShadow = false
         isMovableByWindowBackground = false
         isReleasedWhenClosed = false
         becomesKeyOnlyIfNeeded = false
-        appearance = NSAppearance(named: .aqua)
+        appearance = nil
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient, .ignoresCycle]
         animationBehavior = .utilityWindow
     }
@@ -219,20 +218,13 @@ public final class PickerOrcaPanel: NSPanel {
 }
 
 public struct PickerOrcaView: View {
-    public static let panelWidth: CGFloat = 280
-    public static let agentRowHeight: CGFloat = 28
-    public static let cornerRadius: CGFloat = 8
+    public static let panelWidth: CGFloat = PickerStyle.orcaPanelWidth
+    public static let panelPadding: CGFloat = PickerStyle.orcaPanelPadding
+    public static let agentRowHeight: CGFloat = PickerStyle.orcaControlHeight
+    public static let noteFieldHeight: CGFloat = PickerStyle.orcaControlHeight
+    public static let cornerRadius: CGFloat = PickerStyle.cornerRadius
 
-    private static let surfaceBackgroundColor = Color.white
-    private static let buttonRowBackgroundColor = Color.white
-    private static let borderColor = Color.black.opacity(0.14)
-    private static let dividerColor = Color.black.opacity(0.09)
-    private static let primaryTextColor = Color(red: 0.11, green: 0.12, blue: 0.14)
-    private static let secondaryTextColor = Color(red: 0.42, green: 0.45, blue: 0.50)
-    private static let errorTextColor = Color(red: 0.76, green: 0.16, blue: 0.16)
-    private static let buttonHoverColor = Color(red: 0.92, green: 0.93, blue: 0.95)
-    private static let buttonPressedColor = Color(red: 0.86, green: 0.88, blue: 0.91)
-
+    @Environment(\.colorScheme) private var colorScheme
     @ObservedObject var state: PickerOrcaPanelState
     let onSelectAgent: (OrcaAgent) -> Void
     let onCancel: () -> Void
@@ -247,33 +239,38 @@ public struct PickerOrcaView: View {
         self.onCancel = onCancel
     }
 
-    private var previewText: String {
-        PickerOrcaLauncher.displaySelectionPreview(state.selectionText)
+    private var singleLineErrorMessage: String? {
+        guard let raw = state.errorMessage else {
+            return nil
+        }
+        let collapsed = raw
+            .components(separatedBy: .whitespacesAndNewlines)
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+        return collapsed.isEmpty ? nil : collapsed
     }
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            if !previewText.isEmpty {
-                Text(previewText)
-                    .font(.system(size: 11))
-                    .foregroundColor(Self.secondaryTextColor)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-
             OrcaNoteTextField(
                 text: $state.noteText,
                 placeholder: PickerOrcaStrings.noteFieldLabel,
                 isEnabled: !state.isLaunching,
                 onCancel: onCancel
             )
-            .frame(height: 24)
+            .frame(maxWidth: .infinity)
+            .frame(height: Self.noteFieldHeight)
+            .background(PickerStyle.surfaceColor(for: colorScheme))
+            .clipShape(RoundedRectangle(cornerRadius: PickerStyle.controlCornerRadius, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: PickerStyle.controlCornerRadius, style: .continuous)
+                    .strokeBorder(PickerStyle.borderColor(for: colorScheme), lineWidth: PickerStyle.borderWidth)
+            )
 
-            if let errorMessage = state.errorMessage, !errorMessage.isEmpty {
+            if let errorMessage = singleLineErrorMessage {
                 Text(errorMessage)
-                    .font(.system(size: 11))
-                    .foregroundColor(Self.errorTextColor)
+                    .font(.system(size: PickerStyle.captionSize))
+                    .foregroundColor(PickerStyle.errorColor)
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -283,46 +280,50 @@ public struct PickerOrcaView: View {
                 ForEach(Array(OrcaAgent.allCases.enumerated()), id: \.element.id) { index, agent in
                     if index > 0 {
                         Rectangle()
-                            .fill(Self.dividerColor)
-                            .frame(width: 1, height: 18)
+                            .fill(PickerStyle.borderColor(for: colorScheme))
+                            .frame(width: PickerStyle.dividerThickness)
                     }
 
                     OrcaAgentButton(
                         title: agent.buttonTitle,
                         isEnabled: state.canSend,
-                        textColor: Self.primaryTextColor,
-                        hoverColor: Self.buttonHoverColor,
-                        pressedColor: Self.buttonPressedColor
+                        hoverColor: PickerStyle.hoverColor(for: colorScheme),
+                        pressedColor: PickerStyle.pressedColor(for: colorScheme)
                     ) {
                         onSelectAgent(agent)
                     }
                 }
             }
             .frame(height: Self.agentRowHeight)
-            .background(Self.buttonRowBackgroundColor)
-            .clipShape(RoundedRectangle(cornerRadius: Self.cornerRadius, style: .continuous))
+            .background(PickerStyle.surfaceColor(for: colorScheme))
+            .clipShape(RoundedRectangle(cornerRadius: PickerStyle.controlCornerRadius, style: .continuous))
             .overlay(
-                RoundedRectangle(cornerRadius: Self.cornerRadius, style: .continuous)
-                    .strokeBorder(Self.borderColor, lineWidth: 0.75)
+                RoundedRectangle(cornerRadius: PickerStyle.controlCornerRadius, style: .continuous)
+                    .strokeBorder(PickerStyle.borderColor(for: colorScheme), lineWidth: PickerStyle.borderWidth)
             )
         }
-        .padding(8)
+        .padding(Self.panelPadding)
         .frame(width: Self.panelWidth)
-        .background(Self.surfaceBackgroundColor)
+        .background(PickerStyle.surfaceColor(for: colorScheme))
         .clipShape(RoundedRectangle(cornerRadius: Self.cornerRadius, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: Self.cornerRadius, style: .continuous)
-                .strokeBorder(Self.borderColor, lineWidth: 0.75)
+                .strokeBorder(PickerStyle.borderColor(for: colorScheme), lineWidth: PickerStyle.borderWidth)
         )
+        .shadow(
+            color: PickerStyle.shadowColor(for: colorScheme),
+            radius: PickerStyle.shadowRadius,
+            x: 0,
+            y: PickerStyle.shadowOffsetY
+        )
+        .padding(PickerStyle.floatingShadowInsets)
         .fixedSize(horizontal: false, vertical: true)
-        .environment(\.colorScheme, .light)
     }
 }
 
 private struct OrcaAgentButton: View {
     let title: String
     let isEnabled: Bool
-    let textColor: Color
     let hoverColor: Color
     let pressedColor: Color
     let action: () -> Void
@@ -332,9 +333,9 @@ private struct OrcaAgentButton: View {
     var body: some View {
         Button(action: action) {
             Text(title)
-                .font(.system(size: 12, weight: .semibold))
+                .font(.system(size: PickerStyle.bodySize, weight: .medium))
                 .lineLimit(1)
-                .foregroundColor(isEnabled ? textColor : textColor.opacity(0.38))
+                .foregroundColor(isEnabled ? .primary : .secondary)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .contentShape(Rectangle())
         }
@@ -377,6 +378,40 @@ private struct OrcaAgentButtonStyle: ButtonStyle {
     }
 }
 
+private final class FirstMouseNoteFieldContainerView: NSView {
+    let textField: FirstMouseNoteTextField
+
+    init(textField: FirstMouseNoteTextField) {
+        self.textField = textField
+        super.init(frame: .zero)
+        translatesAutoresizingMaskIntoConstraints = false
+        textField.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(textField)
+        NSLayoutConstraint.activate([
+            textField.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
+            textField.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
+            textField.centerYAnchor.constraint(equalTo: centerYAnchor)
+        ])
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+        true
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        guard textField.isEnabled else {
+            super.mouseDown(with: event)
+            return
+        }
+        window?.makeFirstResponder(textField)
+    }
+}
+
 private struct OrcaNoteTextField: NSViewRepresentable {
     @Binding var text: String
     let placeholder: String
@@ -387,37 +422,52 @@ private struct OrcaNoteTextField: NSViewRepresentable {
         Coordinator(self)
     }
 
-    func makeNSView(context: Context) -> FirstMouseNoteTextField {
+    func makeNSView(context: Context) -> FirstMouseNoteFieldContainerView {
         let field = FirstMouseNoteTextField(frame: .zero)
         field.delegate = context.coordinator
-        field.placeholderString = placeholder
         field.isEditable = true
         field.isSelectable = true
-        field.isBezeled = true
-        field.bezelStyle = .roundedBezel
-        field.drawsBackground = true
-        field.backgroundColor = .white
-        field.textColor = .black
-        field.focusRingType = .exterior
-        field.font = .systemFont(ofSize: 12)
+        field.isBordered = false
+        field.isBezeled = false
+        field.drawsBackground = false
+        field.textColor = .labelColor
+        field.focusRingType = .none
+        field.font = .systemFont(ofSize: PickerStyle.bodySize)
         field.usesSingleLineMode = true
         field.cell?.wraps = false
         field.cell?.isScrollable = true
+        field.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        field.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        applyPlaceholder(placeholder, to: field)
         field.setAccessibilityLabel(placeholder)
         field.stringValue = text
         field.isEnabled = isEnabled
-        return field
+        return FirstMouseNoteFieldContainerView(textField: field)
     }
 
-    func updateNSView(_ nsView: FirstMouseNoteTextField, context: Context) {
+    func updateNSView(_ nsView: FirstMouseNoteFieldContainerView, context: Context) {
         context.coordinator.parent = self
-        nsView.placeholderString = placeholder
-        nsView.setAccessibilityLabel(placeholder)
-        nsView.isEnabled = isEnabled
-        let hasMarked = (nsView.currentEditor() as? NSTextView)?.hasMarkedText() == true
-        if !hasMarked && nsView.stringValue != text {
-            nsView.stringValue = text
+        let field = nsView.textField
+        applyPlaceholder(placeholder, to: field)
+        field.setAccessibilityLabel(placeholder)
+        field.isEnabled = isEnabled
+        if let editor = field.currentEditor() as? NSTextView {
+            editor.insertionPointColor = .labelColor
         }
+        let hasMarked = (field.currentEditor() as? NSTextView)?.hasMarkedText() == true
+        if !hasMarked && field.stringValue != text {
+            field.stringValue = text
+        }
+    }
+
+    private func applyPlaceholder(_ string: String, to field: NSTextField) {
+        field.placeholderAttributedString = NSAttributedString(
+            string: string,
+            attributes: [
+                .font: NSFont.systemFont(ofSize: PickerStyle.bodySize),
+                .foregroundColor: NSColor.secondaryLabelColor
+            ]
+        )
     }
 
     final class Coordinator: NSObject, NSTextFieldDelegate {
@@ -425,6 +475,13 @@ private struct OrcaNoteTextField: NSViewRepresentable {
 
         init(_ parent: OrcaNoteTextField) {
             self.parent = parent
+        }
+
+        func controlTextDidBeginEditing(_ obj: Notification) {
+            if let field = obj.object as? NSTextField,
+               let editor = field.currentEditor() as? NSTextView {
+                editor.insertionPointColor = .labelColor
+            }
         }
 
         func controlTextDidChange(_ obj: Notification) {

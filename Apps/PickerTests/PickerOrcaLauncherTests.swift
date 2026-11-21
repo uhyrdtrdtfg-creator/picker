@@ -495,4 +495,74 @@ final class PickerOrcaLauncherTests: XCTestCase {
         XCTAssertEqual(preview.count, 81)
         XCTAssertTrue(preview.hasSuffix("…"))
     }
+
+    func testPopupDividersAppearOnlyBetweenClipboardLookupAndSendToOrcaGroups() {
+        let fullActions: [PopupAction] = [
+            .copy,
+            .cut,
+            .paste,
+            .search,
+            .openLink,
+            .dictionary,
+            .reveal,
+            .spelling,
+            .sendToOrca
+        ]
+        let dividerIndices = fullActions.indices.filter {
+            PickerPopupView.shouldShowDivider(before: $0, in: fullActions)
+        }
+        XCTAssertEqual(dividerIndices, [3, 8])
+
+        let clipboardAndOrca: [PopupAction] = [.copy, .cut, .paste, .sendToOrca]
+        let twoGroupDividers = clipboardAndOrca.indices.filter {
+            PickerPopupView.shouldShowDivider(before: $0, in: clipboardAndOrca)
+        }
+        XCTAssertEqual(twoGroupDividers, [3])
+
+        let pasteOnly: [PopupAction] = [.paste]
+        let singleGroupDividers = pasteOnly.indices.filter {
+            PickerPopupView.shouldShowDivider(before: $0, in: pasteOnly)
+        }
+        XCTAssertTrue(singleGroupDividers.isEmpty)
+    }
+
+    @MainActor
+    func testPopupAndOrcaPanelsFollowSystemAppearanceAndMatchVisualSystemMetrics() {
+        let popupPanel = PickerPopupPanel()
+        let orcaPanel = PickerOrcaPanel()
+
+        XCTAssertNil(popupPanel.appearance)
+        XCTAssertNil(orcaPanel.appearance)
+        XCTAssertFalse(popupPanel.hasShadow)
+        XCTAssertFalse(orcaPanel.hasShadow)
+
+        XCTAssertEqual(PickerPopupView.buttonSize, 28)
+        XCTAssertEqual(PickerPopupView.symbolSize, 13)
+        XCTAssertEqual(PickerOrcaView.panelWidth, 260)
+        XCTAssertEqual(PickerOrcaView.panelPadding, 8)
+        XCTAssertEqual(PickerOrcaView.agentRowHeight, 26)
+        XCTAssertEqual(PickerOrcaView.cornerRadius, 8)
+
+        let popupSize = popupPanel.setActions([.copy, .cut, .paste, .search, .sendToOrca]) { _ in }
+        XCTAssertEqual(
+            popupSize.height,
+            28 + 2 + PickerStyle.floatingShadowInsets.top + PickerStyle.floatingShadowInsets.bottom,
+            accuracy: 1.0
+        )
+
+        let state = PickerOrcaPanelState()
+        state.reset(selectionText: "Selected snippet", isOrcaAvailable: true)
+        state.noteText = "补充说明测试"
+        let orcaSize = orcaPanel.configureContent(
+            state: state,
+            onSelectAgent: { _ in },
+            onCancel: {}
+        )
+        XCTAssertEqual(
+            orcaSize.width,
+            260 + PickerStyle.floatingShadowInsets.leading + PickerStyle.floatingShadowInsets.trailing,
+            accuracy: 1.0
+        )
+        XCTAssertEqual(orcaPanel.commitAndReadNoteText(fallback: ""), "补充说明测试")
+    }
 }

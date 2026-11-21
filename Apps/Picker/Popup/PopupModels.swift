@@ -1,5 +1,6 @@
 import CoreGraphics
 import Foundation
+import SwiftUI
 
 #if canImport(PickerCore)
 import PickerCore
@@ -8,6 +9,56 @@ import PickerCore
 #if canImport(PickerActions)
 import PickerActions
 #endif
+
+public enum PickerStyle {
+    public static let cornerRadius: CGFloat = 8
+    public static let controlCornerRadius: CGFloat = 6
+    public static let borderWidth: CGFloat = 1
+    public static let dividerThickness: CGFloat = 1
+
+    public static let popupButtonSize: CGFloat = 28
+    public static let popupSymbolSize: CGFloat = 13
+
+    public static let orcaPanelWidth: CGFloat = 260
+    public static let orcaPanelPadding: CGFloat = 8
+    public static let orcaControlHeight: CGFloat = 26
+
+    public static let sectionTitleSize: CGFloat = 13
+    public static let bodySize: CGFloat = 12
+    public static let captionSize: CGFloat = 11
+
+    public static let errorColor = Color.red
+
+    public static let shadowRadius: CGFloat = 2
+    public static let shadowOffsetY: CGFloat = 1
+    public static let floatingShadowInsets = EdgeInsets(top: 2, leading: 3, bottom: 4, trailing: 3)
+
+    public static func surfaceColor(for colorScheme: ColorScheme) -> Color {
+        colorScheme == .dark ? Color(white: 0.11) : Color.white
+    }
+
+    public static func borderColor(for colorScheme: ColorScheme) -> Color {
+        colorScheme == .dark ? Color.white.opacity(0.12) : Color.black.opacity(0.12)
+    }
+
+    public static func hoverColor(for colorScheme: ColorScheme) -> Color {
+        colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.06)
+    }
+
+    public static func pressedColor(for colorScheme: ColorScheme) -> Color {
+        colorScheme == .dark ? Color.white.opacity(0.14) : Color.black.opacity(0.11)
+    }
+
+    public static func shadowColor(for colorScheme: ColorScheme) -> Color {
+        Color.black.opacity(colorScheme == .dark ? 0.24 : 0.10)
+    }
+}
+
+public enum PopupActionGroup: String, CaseIterable, Equatable, Sendable {
+    case clipboard
+    case lookup
+    case sendToOrca
+}
 
 // Local popup models used until project.yml links Packages/PickerCore and
 // Packages/PickerActions into the Picker app target. When PickerCore and
@@ -48,6 +99,17 @@ public enum PopupBuiltInAction: String, CaseIterable, Sendable {
             self = .sendToOrca
         default:
             return nil
+        }
+    }
+
+    public var group: PopupActionGroup {
+        switch self {
+        case .copy, .cut, .paste:
+            return .clipboard
+        case .search, .openLink, .dictionary, .reveal, .spelling:
+            return .lookup
+        case .sendToOrca:
+            return .sendToOrca
         }
     }
 
@@ -102,6 +164,10 @@ public struct PopupAction: Identifiable, Equatable, Hashable, Sendable {
     public let id: String
     public let title: String
     public let symbolName: String
+
+    public var group: PopupActionGroup {
+        PopupBuiltInAction(actionID: id)?.group ?? .lookup
+    }
 
     public init(id: String, title: String, symbolName: String) {
         self.id = id

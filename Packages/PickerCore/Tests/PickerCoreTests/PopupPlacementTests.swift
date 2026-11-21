@@ -112,4 +112,18 @@ final class PopupPlacementTests: XCTestCase {
         XCTAssertTrue(screen.contains(placed))
         XCTAssertFalse(placed.origin.x.isNaN || placed.origin.y.isNaN)
     }
+
+    func testZeroSelectionBoundsDoesNotClampToBottomOfVisibleFrame() {
+        let dockScreen = CGRect(x: 0, y: 54, width: 1728, height: 1030)
+        let placed = PopupPlacement.place(
+            selectionBounds: .zero,
+            screenVisible: dockScreen,
+            preferAbove: true,
+            popupSize: CGSize(width: 335, height: 32)
+        )
+        XCTAssertTrue(dockScreen.contains(placed))
+        XCTAssertEqual(placed.midX, dockScreen.midX, accuracy: 0.5)
+        XCTAssertEqual(placed.minY, dockScreen.midY + PopupPlacement.gap, accuracy: 0.5)
+        XCTAssertGreaterThan(placed.minY, dockScreen.minY + 200)
+    }
 }

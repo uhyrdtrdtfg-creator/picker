@@ -410,6 +410,33 @@ struct AccessibilityFocusedElementClient: FocusedSelectionReading, FocusedTextEd
         "AXDocument",
         kAXTextAreaRole as String
     ]
+    private static let markerDocumentRoles: Set<String> = [
+        "AXWebArea",
+        "AXDocument"
+    ]
+    private static let textInputRoles: Set<String> = [
+        kAXTextFieldRole as String,
+        kAXTextAreaRole as String,
+        kAXComboBoxRole as String,
+        "AXSearchField"
+    ]
+    private static let nonLeafMarkerElementRoles: Set<String> = [
+        kAXApplicationRole as String,
+        kAXWindowRole as String,
+        kAXScrollAreaRole as String,
+        "AXWebArea",
+        "AXDocument"
+    ]
+    private static let axUIElementForTextMarkerAttribute = "AXUIElementForTextMarker"
+    private static let axStartTextMarkerForTextMarkerRangeAttribute = "AXStartTextMarkerForTextMarkerRange"
+    private static let axEndTextMarkerForTextMarkerRangeAttribute = "AXEndTextMarkerForTextMarkerRange"
+
+    private struct SelectionMatch {
+        let element: AnyObject
+        let text: String
+        let markerRange: CFTypeRef?
+        let allowsElementBoundsFallback: Bool
+    }
 
     private let queryClient: AccessibilityQuerying
     private let applicationSupport: AccessibilityApplicationSupport
@@ -475,7 +502,11 @@ struct AccessibilityFocusedElementClient: FocusedSelectionReading, FocusedTextEd
             ?? fallbackBundleID
             ?? ""
 
-        let bounds = readSelectionBounds(from: match.element)
+        let bounds = readSelectionBounds(
+            from: match,
+            expectedPID: effectivePID,
+            expectedBundleURL: fallbackBundleURL
+        )
         return .selection(
             FocusedElementSelection(
                 text: match.text,
@@ -674,7 +705,7 @@ struct AccessibilityFocusedElementClient: FocusedSelectionReading, FocusedTextEd
     private func findSelectionElement(
         frontmostPID: pid_t?,
         frontmostBundleURL: URL?
-    ) -> (element: AnyObject, text: String)? {
+    ) -> SelectionMatch? {
         var visited: [AnyObject] = []
         var focusedCandidates: [AnyObject] = []
 
@@ -783,9 +814,10 @@ struct AccessibilityFocusedElementClient: FocusedSelectionReading, FocusedTextEd
         expectedPID: pid_t?,
         expectedBundleURL: URL?,
         visited: inout [AnyObject]
-    ) -> (element: AnyObject, text: String)? {
+    ) -> SelectionMatch? {
         var current: AnyObject? = startElement
         var steps = 0
+        var pendingMarkerMatch: SelectionMatch?
 
         while let element = current, steps < Self.maxAncestorSteps {
             steps += 1
@@ -811,10 +843,41 @@ struct AccessibilityFocusedElementClient: FocusedSelectionReading, FocusedTextEd
                 break
             }
 
-            if role != "AXSecureTextField",
-               let text = readSelectedText(from: element),
-               !text.isEmpty {
-                return (element, text)
+            if role != "AXSecureTextField" {
+                if let directText = readDirectSelectedText(from: element),
+                   !directText.isEmpty {
+                    return SelectionMatch(
+                        element: element,
+                        text: directText,
+                        markerRange: nil,
+                        allowsElementBoundsFallback: true
+                    )
+                }
+
+                // Chromium/Electron exposes the document-wide AXSelectedTextMarkerRange on
+                // every DOM node in the tree, including a focused composer AXTextField or
+                // AXTextArea whose own selection is empty (range.length == 0). Keep walking
+                // up to the owning AXWebArea / AXDocument instead of anchoring to the
+                // focused input control or an intermediate wrapper group.
+                if let markerMatch = readMarkerSelectedText(from: element),
+                   !markerMatch.text.isEmpty {
+                    if let role, Self.markerDocumentRoles.contains(role) {
+                        return SelectionMatch(
+                            element: element,
+                            text: markerMatch.text,
+                            markerRange: markerMatch.markerRange,
+                            allowsElementBoundsFallback: true
+                        )
+                    }
+                    if pendingMarkerMatch == nil {
+                        pendingMarkerMatch = SelectionMatch(
+                            element: element,
+                            text: markerMatch.text,
+                            markerRange: markerMatch.markerRange,
+                            allowsElementBoundsFallback: false
+                        )
+                    }
+                }
             }
 
             if role == (kAXWindowRole as String) {
@@ -833,13 +896,13 @@ struct AccessibilityFocusedElementClient: FocusedSelectionReading, FocusedTextEd
             current = parent
         }
 
-        return nil
+        return pendingMarkerMatch
     }
 
     private func searchWindowSelection(
         in appElement: AnyObject,
         visited: inout [AnyObject]
-    ) -> (element: AnyObject, text: String)? {
+    ) -> SelectionMatch? {
         var candidateWindows: [AnyObject] = []
         func addWindow(_ window: AnyObject?) {
             guard let window, queryClient.isValidElement(window) else { return }
@@ -881,8 +944,23 @@ struct AccessibilityFocusedElementClient: FocusedSelectionReading, FocusedTextEd
                 if Self.documentSelectionRoles.contains(role),
                    !visited.contains(where: { queryClient.areElementsEqual($0, node) }) {
                     visited.append(node)
-                    if let text = readSelectedText(from: node), !text.isEmpty {
-                        return (node, text)
+                    if let directText = readDirectSelectedText(from: node), !directText.isEmpty {
+                        return SelectionMatch(
+                            element: node,
+                            text: directText,
+                            markerRange: nil,
+                            allowsElementBoundsFallback: true
+                        )
+                    }
+                    if Self.markerDocumentRoles.contains(role),
+                       let markerMatch = readMarkerSelectedText(from: node),
+                       !markerMatch.text.isEmpty {
+                        return SelectionMatch(
+                            element: node,
+                            text: markerMatch.text,
+                            markerRange: markerMatch.markerRange,
+                            allowsElementBoundsFallback: true
+                        )
                     }
                 }
 
@@ -929,7 +1007,35 @@ struct AccessibilityFocusedElementClient: FocusedSelectionReading, FocusedTextEd
         return appFocusedRef
     }
 
-    private func readSelectedText(from element: AnyObject) -> String? {
+    private func hasExplicitEmptyRangeSelection(on element: AnyObject) -> Bool {
+        let (rangesStatus, rangesRef) = queryClient.copyAttributeValue(
+            kAXSelectedTextRangesAttribute as String,
+            from: element
+        )
+        if rangesStatus == .success,
+           let rangeValues = rangesRef as? [AXValue],
+           rangeValues.contains(where: { rangeVal in
+               guard AXValueGetType(rangeVal) == .cfRange else { return false }
+               var range = CFRange(location: 0, length: 0)
+               return AXValueGetValue(rangeVal, .cfRange, &range) && range.length > 0
+           }) {
+            return false
+        }
+
+        guard let rangeValue = copySelectedRangeAXValue(from: element) else {
+            return false
+        }
+        var range = CFRange(location: 0, length: 0)
+        return AXValueGetValue(rangeValue, .cfRange, &range) && range.length == 0
+    }
+
+    private func readDirectSelectedText(from element: AnyObject) -> String? {
+        if let role = copyRole(of: element),
+           Self.textInputRoles.contains(role),
+           hasExplicitEmptyRangeSelection(on: element) {
+            return nil
+        }
+
         let (textStatus, textRef) = queryClient.copyAttributeValue(
             kAXSelectedTextAttribute as String,
             from: element
@@ -996,39 +1102,80 @@ struct AccessibilityFocusedElementClient: FocusedSelectionReading, FocusedTextEd
             }
         }
 
-        if let markerRange = copySelectedTextMarkerRange(from: element) {
-            let (markerTextStatus, markerTextRef) = queryClient.copyParameterizedAttributeValue(
-                Self.axStringForTextMarkerRangeAttribute,
-                parameter: markerRange,
-                from: element
-            )
-            if markerTextStatus == .success {
-                if let text = markerTextRef as? String, !text.isEmpty {
-                    return text
-                }
-                if let attributed = markerTextRef as? NSAttributedString, !attributed.string.isEmpty {
-                    return attributed.string
-                }
-            }
-
-            let (markerAttrStatus, markerAttrRef) = queryClient.copyParameterizedAttributeValue(
-                Self.axAttributedStringForTextMarkerRangeAttribute,
-                parameter: markerRange,
-                from: element
-            )
-            if markerAttrStatus == .success {
-                if let attributed = markerAttrRef as? NSAttributedString, !attributed.string.isEmpty {
-                    return attributed.string
-                }
-                if let text = markerAttrRef as? String, !text.isEmpty {
-                    return text
-                }
-            }
-        }
         return nil
     }
 
-    private func readSelectionBounds(from element: AnyObject) -> CGRect {
+    private func readMarkerSelectedText(from element: AnyObject) -> (text: String, markerRange: CFTypeRef)? {
+        guard let markerRange = copySelectedTextMarkerRange(from: element) else {
+            return nil
+        }
+
+        let (markerTextStatus, markerTextRef) = queryClient.copyParameterizedAttributeValue(
+            Self.axStringForTextMarkerRangeAttribute,
+            parameter: markerRange,
+            from: element
+        )
+        if markerTextStatus == .success {
+            if let text = markerTextRef as? String, !text.isEmpty {
+                return (text, markerRange)
+            }
+            if let attributed = markerTextRef as? NSAttributedString, !attributed.string.isEmpty {
+                return (attributed.string, markerRange)
+            }
+        }
+
+        let (markerAttrStatus, markerAttrRef) = queryClient.copyParameterizedAttributeValue(
+            Self.axAttributedStringForTextMarkerRangeAttribute,
+            parameter: markerRange,
+            from: element
+        )
+        if markerAttrStatus == .success {
+            if let attributed = markerAttrRef as? NSAttributedString, !attributed.string.isEmpty {
+                return (attributed.string, markerRange)
+            }
+            if let text = markerAttrRef as? String, !text.isEmpty {
+                return (text, markerRange)
+            }
+        }
+
+        return nil
+    }
+
+    private func readSelectionBounds(
+        from match: SelectionMatch,
+        expectedPID: pid_t?,
+        expectedBundleURL: URL?
+    ) -> CGRect {
+        let element = match.element
+
+        if let rangeBounds = readRangeSelectionBounds(from: element) {
+            return rangeBounds
+        }
+
+        if let markerBounds = readMarkerSelectionBounds(
+            startingAt: element,
+            fallbackMarkerRange: match.markerRange,
+            expectedPID: expectedPID,
+            expectedBundleURL: expectedBundleURL
+        ) {
+            return markerBounds
+        }
+
+        let role = copyRole(of: element) ?? ""
+        let canUseElementBounds = match.allowsElementBoundsFallback
+            && !(Self.textInputRoles.contains(role) && hasExplicitEmptyRangeSelection(on: element))
+
+        if canUseElementBounds {
+            if let quartzRect = readElementQuartzRect(from: element) {
+                return anchorWithinElementRect(convertQuartzToAppKitScreen(quartzRect))
+            }
+        }
+
+        let mouse = queryClient.mouseLocation()
+        return CGRect(x: mouse.x, y: mouse.y - 10, width: 1, height: 20)
+    }
+
+    private func readRangeSelectionBounds(from element: AnyObject) -> CGRect? {
         if let rangeValue = copySelectedRangeAXValue(from: element) {
             var range = CFRange(location: 0, length: 0)
             if AXValueGetValue(rangeValue, .cfRange, &range), range.length > 0 {
@@ -1043,30 +1190,172 @@ struct AccessibilityFocusedElementClient: FocusedSelectionReading, FocusedTextEd
             }
         }
 
-        if let markerRange = copySelectedTextMarkerRange(from: element) {
-            let (markerBoundsStatus, markerBoundsRef) = queryClient.copyParameterizedAttributeValue(
-                Self.axBoundsForTextMarkerRangeAttribute,
-                parameter: markerRange,
-                from: element
-            )
-            if markerBoundsStatus == .success, let quartzRect = extractNonEmptyRect(from: markerBoundsRef) {
-                return convertQuartzToAppKitScreen(quartzRect)
+        let (rangesStatus, rangesRef) = queryClient.copyAttributeValue(
+            kAXSelectedTextRangesAttribute as String,
+            from: element
+        )
+        if rangesStatus == .success,
+           let rangeValues = rangesRef as? [AXValue],
+           !rangeValues.isEmpty {
+            var combined = CGRect.null
+            for rangeVal in rangeValues where AXValueGetType(rangeVal) == .cfRange {
+                var range = CFRange(location: 0, length: 0)
+                guard AXValueGetValue(rangeVal, .cfRange, &range), range.length > 0 else { continue }
+                let (boundsStatus, boundsRef) = queryClient.copyParameterizedAttributeValue(
+                    kAXBoundsForRangeParameterizedAttribute as String,
+                    parameter: rangeVal,
+                    from: element
+                )
+                if boundsStatus == .success, let quartzRect = extractNonEmptyRect(from: boundsRef) {
+                    combined = combined.isNull ? quartzRect : combined.union(quartzRect)
+                }
+            }
+            if !combined.isNull, combined.width > 0, combined.height > 0 {
+                return convertQuartzToAppKitScreen(combined)
             }
         }
 
+        return nil
+    }
+
+    private func readMarkerSelectionBounds(
+        startingAt startElement: AnyObject,
+        fallbackMarkerRange: CFTypeRef?,
+        expectedPID: pid_t?,
+        expectedBundleURL: URL?
+    ) -> CGRect? {
+        var hosts: [AnyObject] = []
+        var current: AnyObject? = startElement
+        var steps = 0
+
+        while let node = current, steps < Self.maxAncestorSteps {
+            steps += 1
+            if let expectedPID, expectedPID != 0 {
+                let nodePID = queryClient.pid(of: node)
+                if !queryClient.belongsToApplication(
+                    elementPID: nodePID,
+                    appPID: expectedPID,
+                    appBundleURL: expectedBundleURL
+                ) {
+                    break
+                }
+            }
+            let role = copyRole(of: node)
+            if role == (kAXApplicationRole as String) || role == (kAXWindowRole as String) {
+                break
+            }
+            if !hosts.contains(where: { queryClient.areElementsEqual($0, node) }) {
+                hosts.append(node)
+            }
+            let (parentStatus, parentRef) = queryClient.copyAttributeValue(
+                kAXParentAttribute as String,
+                from: node
+            )
+            guard parentStatus == .success,
+                  let parent = parentRef,
+                  queryClient.isValidElement(parent) else {
+                break
+            }
+            current = parent
+        }
+
+        for host in hosts {
+            if let hostMarkerRange = copySelectedTextMarkerRange(from: host) {
+                let (status, boundsRef) = queryClient.copyParameterizedAttributeValue(
+                    Self.axBoundsForTextMarkerRangeAttribute,
+                    parameter: hostMarkerRange,
+                    from: host
+                )
+                if status == .success, let quartzRect = extractNonEmptyRect(from: boundsRef) {
+                    return convertQuartzToAppKitScreen(quartzRect)
+                }
+            }
+            if let fallbackMarkerRange {
+                let (status, boundsRef) = queryClient.copyParameterizedAttributeValue(
+                    Self.axBoundsForTextMarkerRangeAttribute,
+                    parameter: fallbackMarkerRange,
+                    from: host
+                )
+                if status == .success, let quartzRect = extractNonEmptyRect(from: boundsRef) {
+                    return convertQuartzToAppKitScreen(quartzRect)
+                }
+            }
+        }
+
+        // Fallback when AXBoundsForTextMarkerRange returns an empty/zero rect in
+        // Chromium/Electron: resolve the marker range's start and end markers to their
+        // concrete DOM AX elements via AXUIElementForTextMarker and union their bounds.
+        for host in hosts {
+            guard let markerRange = copySelectedTextMarkerRange(from: host) ?? fallbackMarkerRange else {
+                continue
+            }
+            if let endpointQuartzRect = readMarkerEndpointQuartzBounds(markerRange: markerRange, on: host) {
+                return convertQuartzToAppKitScreen(endpointQuartzRect)
+            }
+        }
+
+        return nil
+    }
+
+    private func readMarkerEndpointQuartzBounds(markerRange: CFTypeRef, on host: AnyObject) -> CGRect? {
+        var markers: [CFTypeRef] = []
+        if CFGetTypeID(markerRange) == AXTextMarkerRangeGetTypeID() {
+            let typedRange = unsafeBitCast(markerRange, to: AXTextMarkerRange.self)
+            markers.append(AXTextMarkerRangeCopyStartMarker(typedRange))
+            markers.append(AXTextMarkerRangeCopyEndMarker(typedRange))
+        } else {
+            for attr in [
+                Self.axStartTextMarkerForTextMarkerRangeAttribute,
+                Self.axEndTextMarkerForTextMarkerRangeAttribute
+            ] {
+                let (status, markerRef) = queryClient.copyParameterizedAttributeValue(
+                    attr,
+                    parameter: markerRange,
+                    from: host
+                )
+                if status == .success, let markerRef {
+                    markers.append(markerRef)
+                }
+            }
+        }
+
+        guard !markers.isEmpty else { return nil }
+
+        var combined = CGRect.null
+        for marker in markers {
+            let (status, elemRef) = queryClient.copyParameterizedAttributeValue(
+                Self.axUIElementForTextMarkerAttribute,
+                parameter: marker,
+                from: host
+            )
+            guard status == .success,
+                  let markerElement = elemRef,
+                  queryClient.isValidElement(markerElement) else {
+                continue
+            }
+            let role = copyRole(of: markerElement) ?? ""
+            guard !Self.nonLeafMarkerElementRoles.contains(role) else {
+                continue
+            }
+            if let rect = readElementQuartzRect(from: markerElement), rect.height <= 240 {
+                combined = combined.isNull ? rect : combined.union(rect)
+            }
+        }
+
+        guard !combined.isNull, combined.width > 0, combined.height > 0 else {
+            return nil
+        }
+        return combined
+    }
+
+    private func readElementQuartzRect(from element: AnyObject) -> CGRect? {
         for attribute in [Self.axBoundsAttribute, Self.axFrameAttribute] {
             let (rectStatus, rectRef) = queryClient.copyAttributeValue(attribute, from: element)
             if rectStatus == .success, let quartzRect = extractNonEmptyRect(from: rectRef) {
-                return anchorWithinElementRect(convertQuartzToAppKitScreen(quartzRect))
+                return quartzRect
             }
         }
-
-        if let elementRect = readPositionAndSize(from: element) {
-            return anchorWithinElementRect(convertQuartzToAppKitScreen(elementRect))
-        }
-
-        let mouse = queryClient.mouseLocation()
-        return CGRect(x: mouse.x, y: mouse.y - 10, width: 1, height: 20)
+        return readPositionAndSize(from: element)
     }
 
     private func anchorWithinElementRect(_ appKitRect: CGRect) -> CGRect {
@@ -1138,7 +1427,7 @@ struct AccessibilityFocusedElementClient: FocusedSelectionReading, FocusedTextEd
         var size = CGSize.zero
         guard AXValueGetValue(positionAX, .cgPoint, &origin),
               AXValueGetValue(sizeAX, .cgSize, &size),
-              size.width > 0 || size.height > 0 else {
+              size.width > 0 && size.height > 0 else {
             return nil
         }
         return CGRect(origin: origin, size: size)
@@ -1149,11 +1438,14 @@ struct AccessibilityFocusedElementClient: FocusedSelectionReading, FocusedTextEd
         var rect = CGRect.zero
         guard AXValueGetValue(axValue, .cgRect, &rect),
               !rect.isNull,
-              !rect.isInfinite,
-              rect.width > 0 || rect.height > 0 else {
+              !rect.isInfinite else {
             return nil
         }
-        return rect.standardized
+        let standardized = rect.standardized
+        guard standardized.width > 0 && standardized.height > 0 else {
+            return nil
+        }
+        return standardized
     }
 
     private func convertQuartzToAppKitScreen(_ quartzRect: CGRect) -> CGRect {

@@ -166,8 +166,20 @@ public enum PopupPlacement {
         preferAbove: Bool = true,
         popupSize: CGSize
     ) -> CGRect {
-        let selection = selectionBounds.standardized
-        let visible = screenVisible.standardized
+        let visible = screenVisible.isNull || screenVisible.isInfinite
+            ? .zero
+            : screenVisible.standardized
+        let selection: CGRect
+        if selectionBounds.isNull || selectionBounds.isInfinite || selectionBounds == .zero {
+            selection = CGRect(x: visible.midX, y: visible.midY, width: 0, height: 0)
+        } else {
+            let standardized = selectionBounds.standardized
+            if standardized.origin == .zero && standardized.width <= 0 && standardized.height <= 0 {
+                selection = CGRect(x: visible.midX, y: visible.midY, width: 0, height: 0)
+            } else {
+                selection = standardized
+            }
+        }
 
         let width = visible.width > 0 ? min(max(0, popupSize.width), visible.width) : max(0, popupSize.width)
         let height = visible.height > 0 ? min(max(0, popupSize.height), visible.height) : max(0, popupSize.height)
@@ -204,6 +216,19 @@ public enum PopupPlacement {
         let clampedY = min(max(unclampedY, visible.minY), maxY)
 
         return CGRect(x: clampedX, y: clampedY, width: width, height: height)
+    }
+
+    public static func convertFromQuartzScreen(
+        _ quartzRect: CGRect,
+        primaryScreenHeight: CGFloat
+    ) -> CGRect {
+        let rect = quartzRect.standardized
+        return CGRect(
+            x: rect.origin.x,
+            y: primaryScreenHeight - rect.maxY,
+            width: rect.width,
+            height: rect.height
+        )
     }
 }
 #endif

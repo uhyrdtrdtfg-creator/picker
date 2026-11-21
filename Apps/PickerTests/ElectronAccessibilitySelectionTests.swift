@@ -505,4 +505,335 @@ final class ElectronAccessibilitySelectionTests: XCTestCase {
         XCTAssertEqual(observedSelections.first?.0, "async electron selection")
         XCTAssertEqual(observedSelections.first?.1, "com.stablyai.orca")
     }
+
+    private func makeAXRange(location: Int, length: Int) -> AXValue {
+        var range = CFRange(location: location, length: length)
+        return AXValueCreate(.cfRange, &range)!
+    }
+
+    @MainActor
+    func testOrcaConversationSelectionDoesNotAnchorToFocusedBottomComposerWhenComposerLeaksMarkerRange() throws {
+        let electronBundleURL = try createTemporaryElectronBundle()
+        let queryClient = FakeAccessibilityQueryClient()
+        queryClient.screenHeight = 1117
+        let orcaPID: pid_t = 31530
+        queryClient.bundleIDsByPID[orcaPID] = "com.stablyai.orca"
+        queryClient.currentFrontmostApp = AccessibilityFrontmostApplication(
+            processIdentifier: orcaPID,
+            bundleIdentifier: "com.stablyai.orca",
+            bundleURL: electronBundleURL
+        )
+
+        let appNode = MockAXNode(pid: orcaPID, role: kAXApplicationRole as String)
+        let windowNode = MockAXNode(pid: orcaPID, role: kAXWindowRole as String)
+        windowNode.attributes["AXFrame"] = makeAXRect(CGRect(x: 0, y: 33, width: 1728, height: 1084))
+        appNode.addChild(windowNode)
+        appNode.attributes[kAXFocusedWindowAttribute as String] = windowNode
+        appNode.attributes[kAXWindowsAttribute as String] = [windowNode] as NSArray
+
+        let webArea = MockAXNode(pid: orcaPID, role: "AXWebArea")
+        webArea.attributes["AXFrame"] = makeAXRect(CGRect(x: 0, y: 33, width: 1728, height: 1084))
+        windowNode.addChild(webArea)
+
+        let recapSelectedText = "我们把 Picker 发到 1.0.9、Choclift 发到 1.0.37"
+        let markerToken = MockMarkerRangeToken("orca-recap-selection")
+        let recapQuartzRect = CGRect(x: 430, y: 110, width: 920, height: 22)
+        let zeroQuartzRect = CGRect(x: 0, y: 33, width: 0, height: 0)
+
+        webArea.attributes["AXSelectedTextMarkerRange"] = markerToken
+        webArea.parameterizedAttributes["AXStringForTextMarkerRange"] = { param in
+            guard (param as? MockMarkerRangeToken)?.id == markerToken.id else {
+                return (.noValue, nil)
+            }
+            return (.success, recapSelectedText as NSString)
+        }
+        webArea.parameterizedAttributes["AXBoundsForTextMarkerRange"] = { [self] param in
+            guard (param as? MockMarkerRangeToken)?.id == markerToken.id else {
+                return (.noValue, nil)
+            }
+            return (.success, self.makeAXRect(recapQuartzRect))
+        }
+
+        // Bottom composer ("Build anything") retains AX focus with an empty selection of its own,
+        // while Chromium leaks the document-wide AXSelectedTextMarkerRange onto every DOM node
+        // and returns a zero rect for AXBoundsForTextMarkerRange on the focused input leaf.
+        let composerWrapper = MockAXNode(pid: orcaPID, role: kAXGroupRole as String)
+        composerWrapper.attributes["AXFrame"] = makeAXRect(CGRect(x: 420, y: 1040, width: 1280, height: 36))
+        composerWrapper.attributes["AXSelectedTextMarkerRange"] = markerToken
+        composerWrapper.parameterizedAttributes["AXStringForTextMarkerRange"] = webArea.parameterizedAttributes["AXStringForTextMarkerRange"]
+        composerWrapper.parameterizedAttributes["AXBoundsForTextMarkerRange"] = { [self] _ in
+            (.success, self.makeAXRect(zeroQuartzRect))
+        }
+        webArea.addChild(composerWrapper)
+
+        let bottomComposer = MockAXNode(pid: orcaPID, role: kAXTextFieldRole as String)
+        bottomComposer.attributes["AXFrame"] = makeAXRect(CGRect(x: 420, y: 1040, width: 1280, height: 27))
+        bottomComposer.attributes[kAXSelectedTextAttribute as String] = "" as NSString
+        bottomComposer.attributes[kAXSelectedTextRangeAttribute as String] = makeAXRange(location: 0, length: 0)
+        bottomComposer.attributes["AXSelectedTextMarkerRange"] = markerToken
+        bottomComposer.parameterizedAttributes["AXStringForTextMarkerRange"] = webArea.parameterizedAttributes["AXStringForTextMarkerRange"]
+        bottomComposer.parameterizedAttributes["AXBoundsForTextMarkerRange"] = { [self] _ in
+            (.success, self.makeAXRect(zeroQuartzRect))
+        }
+        composerWrapper.addChild(bottomComposer)
+
+        appNode.attributes[kAXFocusedUIElementAttribute as String] = bottomComposer
+        queryClient.systemWideElement.attributes[kAXFocusedUIElementAttribute as String] = bottomComposer
+        queryClient.appElementsByPID[orcaPID] = appNode
+
+        let client = AccessibilityFocusedElementClient(
+            queryClient: queryClient,
+            applicationSupport: AccessibilityApplicationSupport(refreshInterval: 0)
+        )
+        let outcome = client.readFocusedSelection()
+
+        // Quartz y=110, h=22 on 1117px screen -> AppKit y = 1117 - 132 = 985.
+        let expectedRecapBounds = CGRect(x: 430, y: 985, width: 920, height: 22)
+        XCTAssertEqual(
+            outcome,
+            .selection(
+                FocusedElementSelection(
+                    text: recapSelectedText,
+                    bounds: expectedRecapBounds,
+                    bundleID: "com.stablyai.orca",
+                    processIdentifier: orcaPID
+                )
+            )
+        )
+
+        let visibleFrame = NSRect(x: 0, y: 54, width: 1728, height: 1030)
+        let popupFrame = PickerPopupController.calculateFrame(
+            popupSize: CGSize(width: 335, height: 32),
+            near: expectedRecapBounds,
+            in: visibleFrame,
+            preferAbove: true
+        )
+        XCTAssertEqual(popupFrame.origin.y, expectedRecapBounds.maxY + 6)
+        XCTAssertEqual(popupFrame.midX, expectedRecapBounds.midX, accuracy: 0.5)
+        XCTAssertGreaterThan(popupFrame.minY, 900)
+    }
+
+    func testMarkerEndpointElementBoundsUsedWhenBoundsForTextMarkerRangeReturnsZeroRect() throws {
+        let electronBundleURL = try createTemporaryElectronBundle()
+        let queryClient = FakeAccessibilityQueryClient()
+        queryClient.screenHeight = 1117
+        let orcaPID: pid_t = 31530
+        queryClient.bundleIDsByPID[orcaPID] = "com.stablyai.orca"
+        queryClient.currentFrontmostApp = AccessibilityFrontmostApplication(
+            processIdentifier: orcaPID,
+            bundleIdentifier: "com.stablyai.orca",
+            bundleURL: electronBundleURL
+        )
+
+        let appNode = MockAXNode(pid: orcaPID, role: kAXApplicationRole as String)
+        let windowNode = MockAXNode(pid: orcaPID, role: kAXWindowRole as String)
+        appNode.addChild(windowNode)
+        appNode.attributes[kAXFocusedWindowAttribute as String] = windowNode
+        appNode.attributes[kAXWindowsAttribute as String] = [windowNode] as NSArray
+
+        let webArea = MockAXNode(pid: orcaPID, role: "AXWebArea")
+        webArea.attributes["AXFrame"] = makeAXRect(CGRect(x: 0, y: 33, width: 1728, height: 1084))
+        windowNode.addChild(webArea)
+
+        let recapLineNode = MockAXNode(pid: orcaPID, role: kAXStaticTextRole as String)
+        recapLineNode.attributes["AXFrame"] = makeAXRect(CGRect(x: 430, y: 110, width: 920, height: 22))
+        webArea.addChild(recapLineNode)
+
+        let startBytes: [UInt8] = [1, 0, 0, 1]
+        let endBytes: [UInt8] = [1, 0, 0, 2]
+        let startMarker = AXTextMarkerCreate(kCFAllocatorDefault, startBytes, startBytes.count)
+        let endMarker = AXTextMarkerCreate(kCFAllocatorDefault, endBytes, endBytes.count)
+        let markerRange = AXTextMarkerRangeCreate(kCFAllocatorDefault, startMarker, endMarker)
+        let zeroQuartzRect = CGRect(x: 0, y: 33, width: 0, height: 0)
+
+        webArea.attributes["AXSelectedTextMarkerRange"] = markerRange
+        webArea.parameterizedAttributes["AXStringForTextMarkerRange"] = { _ in
+            (.success, "Recap line selection" as NSString)
+        }
+        webArea.parameterizedAttributes["AXBoundsForTextMarkerRange"] = { [self] _ in
+            (.success, self.makeAXRect(zeroQuartzRect))
+        }
+        webArea.parameterizedAttributes["AXUIElementForTextMarker"] = { marker in
+            guard CFGetTypeID(marker) == AXTextMarkerGetTypeID() else {
+                return (.noValue, nil)
+            }
+            return (.success, recapLineNode)
+        }
+
+        let focusedComposer = MockAXNode(pid: orcaPID, role: kAXTextAreaRole as String)
+        focusedComposer.attributes["AXFrame"] = makeAXRect(CGRect(x: 420, y: 1040, width: 1280, height: 36))
+        focusedComposer.attributes[kAXSelectedTextAttribute as String] = "" as NSString
+        focusedComposer.attributes[kAXSelectedTextRangeAttribute as String] = makeAXRange(location: 0, length: 0)
+        focusedComposer.attributes["AXSelectedTextMarkerRange"] = markerRange
+        focusedComposer.parameterizedAttributes["AXStringForTextMarkerRange"] = webArea.parameterizedAttributes["AXStringForTextMarkerRange"]
+        focusedComposer.parameterizedAttributes["AXBoundsForTextMarkerRange"] = webArea.parameterizedAttributes["AXBoundsForTextMarkerRange"]
+        webArea.addChild(focusedComposer)
+
+        appNode.attributes[kAXFocusedUIElementAttribute as String] = focusedComposer
+        queryClient.appElementsByPID[orcaPID] = appNode
+
+        let client = AccessibilityFocusedElementClient(
+            queryClient: queryClient,
+            applicationSupport: AccessibilityApplicationSupport(refreshInterval: 0)
+        )
+        let outcome = client.readFocusedSelection()
+
+        XCTAssertEqual(
+            outcome,
+            .selection(
+                FocusedElementSelection(
+                    text: "Recap line selection",
+                    bounds: CGRect(x: 430, y: 985, width: 920, height: 22),
+                    bundleID: "com.stablyai.orca",
+                    processIdentifier: orcaPID
+                )
+            )
+        )
+    }
+
+    func testFocusedComposerSelectionUsesComposerBoundsWhenTextIsSelectedInsideComposer() throws {
+        let electronBundleURL = try createTemporaryElectronBundle()
+        let queryClient = FakeAccessibilityQueryClient()
+        queryClient.screenHeight = 1117
+        let orcaPID: pid_t = 31530
+        queryClient.bundleIDsByPID[orcaPID] = "com.stablyai.orca"
+        queryClient.currentFrontmostApp = AccessibilityFrontmostApplication(
+            processIdentifier: orcaPID,
+            bundleIdentifier: "com.stablyai.orca",
+            bundleURL: electronBundleURL
+        )
+
+        let appNode = MockAXNode(pid: orcaPID, role: kAXApplicationRole as String)
+        let windowNode = MockAXNode(pid: orcaPID, role: kAXWindowRole as String)
+        let webArea = MockAXNode(pid: orcaPID, role: "AXWebArea")
+        windowNode.addChild(webArea)
+        appNode.addChild(windowNode)
+        appNode.attributes[kAXFocusedWindowAttribute as String] = windowNode
+
+        let composerSelectionQuartz = CGRect(x: 460, y: 1030, width: 95, height: 18)
+        let focusedComposer = MockAXNode(pid: orcaPID, role: kAXTextAreaRole as String)
+        focusedComposer.attributes[kAXSelectedTextAttribute as String] = "composer text" as NSString
+        focusedComposer.attributes[kAXSelectedTextRangeAttribute as String] = makeAXRange(location: 0, length: 13)
+        focusedComposer.parameterizedAttributes[kAXBoundsForRangeParameterizedAttribute as String] = { [self] _ in
+            (.success, self.makeAXRect(composerSelectionQuartz))
+        }
+        webArea.addChild(focusedComposer)
+        appNode.attributes[kAXFocusedUIElementAttribute as String] = focusedComposer
+        queryClient.appElementsByPID[orcaPID] = appNode
+
+        let client = AccessibilityFocusedElementClient(
+            queryClient: queryClient,
+            applicationSupport: AccessibilityApplicationSupport(refreshInterval: 0)
+        )
+        let outcome = client.readFocusedSelection()
+
+        XCTAssertEqual(
+            outcome,
+            .selection(
+                FocusedElementSelection(
+                    text: "composer text",
+                    bounds: CGRect(x: 460, y: 69, width: 95, height: 18),
+                    bundleID: "com.stablyai.orca",
+                    processIdentifier: orcaPID
+                )
+            )
+        )
+    }
+
+    func testZeroHeightQuartzBoundsRejectedInsteadOfClampingToBottomOfScreen() throws {
+        let electronBundleURL = try createTemporaryElectronBundle()
+        let queryClient = FakeAccessibilityQueryClient()
+        queryClient.screenHeight = 1117
+        let orcaPID: pid_t = 31530
+        queryClient.bundleIDsByPID[orcaPID] = "com.stablyai.orca"
+        queryClient.currentFrontmostApp = AccessibilityFrontmostApplication(
+            processIdentifier: orcaPID,
+            bundleIdentifier: "com.stablyai.orca",
+            bundleURL: electronBundleURL
+        )
+
+        let appNode = MockAXNode(pid: orcaPID, role: kAXApplicationRole as String)
+        let windowNode = MockAXNode(pid: orcaPID, role: kAXWindowRole as String)
+        let webArea = MockAXNode(pid: orcaPID, role: "AXWebArea")
+        windowNode.addChild(webArea)
+        appNode.addChild(windowNode)
+        appNode.attributes[kAXFocusedWindowAttribute as String] = windowNode
+
+        let markerToken = MockMarkerRangeToken("degenerate-range-check")
+        // Simulate uncomputed rangeBounds with width > 0 and height == 0 at y = primaryScreenHeight,
+        // while AXBoundsForTextMarkerRange has the real selected-text bounds near the top.
+        webArea.attributes[kAXSelectedTextRangeAttribute as String] = makeAXRange(location: 0, length: 5)
+        webArea.parameterizedAttributes[kAXBoundsForRangeParameterizedAttribute as String] = { [self] _ in
+            (.success, self.makeAXRect(CGRect(x: 400, y: 1117, width: 1328, height: 0)))
+        }
+        webArea.attributes["AXSelectedTextMarkerRange"] = markerToken
+        webArea.parameterizedAttributes["AXStringForTextMarkerRange"] = { _ in
+            (.success, "1.0.9" as NSString)
+        }
+        webArea.parameterizedAttributes["AXBoundsForTextMarkerRange"] = { [self] _ in
+            (.success, self.makeAXRect(CGRect(x: 540, y: 112, width: 42, height: 20)))
+        }
+        appNode.attributes[kAXFocusedUIElementAttribute as String] = webArea
+        queryClient.appElementsByPID[orcaPID] = appNode
+
+        let client = AccessibilityFocusedElementClient(
+            queryClient: queryClient,
+            applicationSupport: AccessibilityApplicationSupport(refreshInterval: 0)
+        )
+        let outcome = client.readFocusedSelection()
+
+        XCTAssertEqual(
+            outcome,
+            .selection(
+                FocusedElementSelection(
+                    text: "1.0.9",
+                    bounds: CGRect(x: 540, y: 985, width: 42, height: 20),
+                    bundleID: "com.stablyai.orca",
+                    processIdentifier: orcaPID
+                )
+            )
+        )
+    }
+
+    @MainActor
+    func testPopupControllerPlacesBarFromSelectedBoundsAndResolvesZeroRectFallback() {
+        let visibleFrame = NSRect(x: 0, y: 54, width: 1728, height: 1030)
+        let popupSize = CGSize(width: 335, height: 32)
+
+        // Selected line near the top with enough headroom: stays 6pt above selection.
+        let recapSelection = NSRect(x: 430, y: 985, width: 920, height: 22)
+        let aboveFrame = PickerPopupController.calculateFrame(
+            popupSize: popupSize,
+            near: recapSelection,
+            in: visibleFrame,
+            preferAbove: true
+        )
+        XCTAssertEqual(aboveFrame.origin.y, recapSelection.maxY + 6)
+        XCTAssertTrue(visibleFrame.contains(aboveFrame))
+
+        // Selected line flush with top of visibleFrame (maxY = 1084): flips 6pt below selection.
+        let topEdgeSelection = NSRect(x: 430, y: 1055, width: 920, height: 22)
+        let flippedBelowFrame = PickerPopupController.calculateFrame(
+            popupSize: popupSize,
+            near: topEdgeSelection,
+            in: visibleFrame,
+            preferAbove: true
+        )
+        XCTAssertEqual(flippedBelowFrame.origin.y, topEdgeSelection.minY - 6 - popupSize.height)
+        XCTAssertTrue(visibleFrame.contains(flippedBelowFrame))
+
+        // Zero rect does not clamp to visibleFrame.minY (54) at the bottom of the screen.
+        let zeroPlaced = PickerPopupController.calculateFrame(
+            popupSize: popupSize,
+            near: .zero,
+            in: visibleFrame,
+            preferAbove: true
+        )
+        XCTAssertGreaterThan(zeroPlaced.minY, visibleFrame.minY + 200)
+        XCTAssertTrue(visibleFrame.contains(zeroPlaced))
+
+        let fallbackPoint = NSPoint(x: 610, y: 990)
+        let resolvedFromZero = PickerPopupController.resolveSelectionBounds(.zero, fallbackPoint: fallbackPoint)
+        XCTAssertEqual(resolvedFromZero, NSRect(x: 610, y: 980, width: 1, height: 20))
+    }
 }

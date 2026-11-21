@@ -21,10 +21,15 @@ public enum PopupPlacement {
             ? .zero
             : screenVisible.standardized
         let selection: CGRect
-        if selectionBounds.isNull || selectionBounds.isInfinite {
+        if selectionBounds.isNull || selectionBounds.isInfinite || selectionBounds == .zero {
             selection = CGRect(x: visible.midX, y: visible.midY, width: 0, height: 0)
         } else {
-            selection = selectionBounds.standardized
+            let standardized = selectionBounds.standardized
+            if standardized.origin == .zero && standardized.width <= 0 && standardized.height <= 0 {
+                selection = CGRect(x: visible.midX, y: visible.midY, width: 0, height: 0)
+            } else {
+                selection = standardized
+            }
         }
 
         let width = visible.width > 0 ? min(max(0, popupSize.width), visible.width) : max(0, popupSize.width)

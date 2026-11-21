@@ -75,16 +75,17 @@ public final class PickerPopupController {
 
         hideOrcaPanel()
         currentSelectionText = selectionText
-        currentSelectionRect = rect
+        let resolvedRect = Self.resolveSelectionBounds(rect, fallbackPoint: NSEvent.mouseLocation)
+        currentSelectionRect = resolvedRect
 
         let popupSize = panel.setActions(actions) { [weak self] actionID in
             self?.handleActionSelection(actionID)
         }
 
-        let visibleFrame = Self.screenVisibleFrame(near: rect)
+        let visibleFrame = Self.screenVisibleFrame(near: resolvedRect)
         let targetFrame = Self.calculateFrame(
             popupSize: popupSize,
-            near: rect,
+            near: resolvedRect,
             in: visibleFrame,
             preferAbove: preferAbove
         )
@@ -188,6 +189,17 @@ public final class PickerPopupController {
         let clampedX = min(max(idealX, visible.minX), maxX)
         let clampedY = min(max(unclampedY, visible.minY), maxY)
         return NSRect(x: clampedX, y: clampedY, width: width, height: height)
+    }
+
+    public static func resolveSelectionBounds(_ rect: NSRect, fallbackPoint: NSPoint) -> NSRect {
+        if rect.isNull || rect.isInfinite || rect == .zero {
+            return NSRect(x: fallbackPoint.x, y: fallbackPoint.y - 10, width: 1, height: 20)
+        }
+        let standardized = rect.standardized
+        if standardized.width <= 0 && standardized.height <= 0 {
+            return NSRect(x: fallbackPoint.x, y: fallbackPoint.y - 10, width: 1, height: 20)
+        }
+        return standardized
     }
 
     public static func calculateFrame(
